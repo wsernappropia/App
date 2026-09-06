@@ -50,16 +50,18 @@ npm run build     # compilación de producción (carpeta dist/)
 
 El repositorio incluye un workflow (`.github/workflows/deploy.yml`) que compila y publica la app automáticamente en GitHub Pages con cada cambio en `main`, o cuando se lanza manualmente.
 
+El propio workflow activa GitHub Pages la primera vez que se ejecuta: el paso `actions/configure-pages@v5` usa `enablement: true`, así que configura Pages con fuente **"GitHub Actions"** automáticamente si aún no estaba activado. No hace falta tocar nada en Settings salvo que ese paso falle.
+
 Pasos para activarlo (una sola vez):
 
-1. En GitHub, entra al repositorio y ve a **Settings → Pages**.
-2. En **Build and deployment → Source**, elige **"GitHub Actions"**.
-3. Haz merge de esta rama a `main` (o ve a la pestaña **Actions → Deploy a GitHub Pages → Run workflow** para lanzarlo manualmente sin esperar al merge).
-4. Espera a que el workflow termine (pestaña **Actions**). Cuando esté en verde, la app queda disponible en:
+1. Haz merge de esta rama a `main` (o ve a la pestaña **Actions → Deploy a GitHub Pages → Run workflow** para lanzarlo manualmente sin esperar al merge).
+2. Espera a que el workflow termine (pestaña **Actions**). Cuando esté en verde, la app queda disponible en:
 
    **https://wsernappropia.github.io/App/**
 
 Cada push posterior a `main` vuelve a desplegar automáticamente la última versión.
+
+**Fallback manual:** si el workflow sigue fallando en el paso `configure-pages` con un error tipo "Not Found" o de permisos (por ejemplo, si Pages está deshabilitado a nivel de organización o el token no tiene permisos suficientes), actívalo manualmente: ve a **Settings → Pages**, en **Build and deployment → Source** elige **"GitHub Actions"**, guarda y vuelve a lanzar el workflow desde **Actions → Deploy a GitHub Pages → Run workflow**.
 
 ## Instalar la app en el celular
 
