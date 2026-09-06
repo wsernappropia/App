@@ -17,15 +17,15 @@ export function SegmentedControl<T extends string>({
   className = '',
 }: SegmentedControlProps<T>) {
   return (
-    <div className={`inline-flex w-full rounded-2xl bg-white/5 p-1 ${className}`} role="tablist">
+    <div className={`inline-flex w-full rounded-2xl bg-white/5 p-1 ${className}`} role="radiogroup">
       {options.map((opt) => {
         const active = opt.value === value
         return (
           <button
             key={opt.value}
             type="button"
-            role="tab"
-            aria-selected={active}
+            role="radio"
+            aria-checked={active}
             onClick={() => onChange(opt.value)}
             className={`min-h-[40px] flex-1 rounded-xl px-3 text-sm font-bold transition-colors ${
               active ? 'bg-teal text-navy-deep' : 'text-white/60'

@@ -29,11 +29,10 @@ import {
   missionFor,
   proteinStatus,
   streak,
-  todayKey,
   todayMessage,
 } from '../lib/selectors'
 import type { Checkin, SupplementId } from '../lib/types'
-import { useData } from './_shared'
+import { useData, useToday } from './_shared'
 
 const ENERGIES: Checkin['energy'][] = [1, 2, 3, 4, 5]
 const ENERGY_EMOJI: Record<Checkin['energy'], string> = {
@@ -55,15 +54,16 @@ export default function Today() {
 
   const [checkinOpen, setCheckinOpen] = useState(false)
 
-  const today = todayKey()
+  const today = useToday()
   const day = data.days[today]
   const mission = missionFor(data.settings, today)
   const done = missionDone(data, today)
   const min = minimumDay(data, today)
   const protein = proteinStatus(data, today)
-  const streakInfo = useMemo(() => streak(data), [data])
+  // `today` en las deps: al cruzar la medianoche se recalculan racha y mensaje.
+  const streakInfo = useMemo(() => streak(data), [data, today])
   const level = levelInfo(data.game.xp)
-  const message = useMemo(() => todayMessage(data), [data])
+  const message = useMemo(() => todayMessage(data), [data, today])
   const supplements = supplementList(data.settings.enabledSupplements)
   const water = day?.water ?? 0
 
@@ -316,6 +316,11 @@ function MissionHero({
         <Button className="mt-4" variant="secondary" size="lg" block onClick={onStart}>
           Añadir más
         </Button>
+        {mission === 'strength' && (
+          <Button className="mt-2" variant="ghost" size="md" block onClick={onExtraWalk}>
+            Añadir caminata
+          </Button>
+        )}
       </Card>
     )
   }
@@ -341,6 +346,15 @@ function MissionHero({
       >
         Empezar
       </Button>
+      {mission === 'strength' && (
+        <button
+          type="button"
+          onClick={onExtraWalk}
+          className="mt-3 block w-full text-center text-sm font-bold text-navy-deep/70 underline underline-offset-2"
+        >
+          Hoy está pesado: 5 min de caminata
+        </button>
+      )}
     </Card>
   )
 }

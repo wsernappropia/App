@@ -78,6 +78,8 @@ export interface MomentumActions {
     weekStart: ISODate
     energy: 1 | 2 | 3 | 4 | 5
     difficulty: 1 | 2 | 3 | 4 | 5
+    /** Dolor máximo corregido por la persona (por defecto, el de las sesiones). */
+    maxPain?: number
     note?: string
   }) => { review: WeeklyReview; xp: number }
   exportJSON: () => string
@@ -435,7 +437,12 @@ export function createStore(options: CreateStoreOptions = {}) {
             const nowDate = now()
             const ws = weekStart(input.weekStart)
             const summary = weekSummary(state, ws)
-            const decision = decide(summary)
+            // El dolor puede corregirlo la persona en la revisión: manda su valor.
+            const maxPain =
+              typeof input.maxPain === 'number'
+                ? Math.max(0, Math.min(10, Math.round(input.maxPain)))
+                : summary.maxPain
+            const decision = decide({ ...summary, maxPain })
             const planBefore = state.plan
             const planAfter = applyDecision(planBefore, decision, todayKey(nowDate))
             const review: WeeklyReview = {
@@ -443,7 +450,7 @@ export function createStore(options: CreateStoreOptions = {}) {
               createdAt: nowDate.getTime(),
               adherence: summary.adherence,
               avgRpe: summary.avgRpe,
-              maxPain: summary.maxPain,
+              maxPain,
               energy: input.energy,
               difficulty: input.difficulty,
               decision,

@@ -161,6 +161,37 @@ describe('completeWeeklyReview', () => {
     expect(s().reviews).toHaveLength(1)
   })
 
+  it('el dolor corregido en la revisión manda sobre el de las sesiones', () => {
+    // Bug encontrado en QA: la pantalla mostraba la decisión con el dolor editado
+    // pero el store decidía con el de las sesiones, así que el plan aplicado no
+    // era el que la persona había aceptado.
+    const store = makeTestStore('2026-09-07')
+    const s = () => store.getState()
+    const week: [string, 'walk' | 'strength'][] = [
+      ['2026-09-07', 'strength'],
+      ['2026-09-08', 'walk'],
+      ['2026-09-09', 'strength'],
+      ['2026-09-10', 'walk'],
+      ['2026-09-11', 'strength'],
+      ['2026-09-12', 'walk'],
+    ]
+    for (const [date, kind] of week) {
+      s()._setToday(date)
+      if (kind === 'walk') s().logWalk(10, 'moderado')
+      else s().logStrength({ roundsDone: 1, roundsPlanned: 1, reps: 8, rpe: 6, pain: 1 })
+    }
+    s()._setToday('2026-09-14')
+    const { review } = s().completeWeeklyReview({
+      weekStart: '2026-09-07',
+      energy: 3,
+      difficulty: 4,
+      maxPain: 6, // la persona corrige: le dolió más de lo registrado
+    })
+    expect(review.maxPain).toBe(6)
+    expect(review.decision).toBe('hold') // nunca progresar con dolor
+    expect(s().plan.walkMinutes).toBe(10) // el plan no sube
+  })
+
   it('semana floja -> reduce y el plan vuelve a base', () => {
     const store = makeTestStore('2026-09-07')
     const s = () => store.getState()

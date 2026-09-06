@@ -1,11 +1,71 @@
 // Helpers locales de las pantallas (no forman parte del dominio en src/lib).
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { todayKey } from '../lib/dates'
 import { useStore } from '../lib/store'
-import type { MomentumData } from '../lib/types'
+import type { ISODate, MomentumData } from '../lib/types'
 
 /** Estado completo del store como datos de dominio (para los selectores puros). */
 export function useData(): MomentumData {
   return useStore((s) => s)
+}
+
+/**
+ * Día de hoy reactivo: se recalcula al cruzar la medianoche y al volver a la app,
+ * para que las pantallas no se queden mostrando el día anterior (el store escribe
+ * siempre en el día real, así que si no se refresca se descuadran).
+ */
+export function useToday(): ISODate {
+  const [day, setDay] = useState<ISODate>(() => todayKey())
+
+  useEffect(() => {
+    let timer = 0
+    function refresh() {
+      setDay((prev) => {
+        const next = todayKey()
+        return prev === next ? prev : next
+      })
+    }
+    function schedule() {
+      const now = new Date()
+      const midnight = new Date(now)
+      midnight.setHours(24, 0, 0, 100)
+      timer = window.setTimeout(() => {
+        refresh()
+        schedule()
+      }, Math.max(1000, midnight.getTime() - now.getTime()))
+    }
+    function onVisible() {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    schedule()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+
+  return day
+}
+
+/**
+ * Envuelve una acción para que un doble toque rápido no la ejecute dos veces
+ * (registros duplicados de caminata, fuerza, check-in o revisión).
+ */
+export function useOnce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  ms = 1000,
+): (...args: A) => void {
+  const lastRun = useRef(0)
+  return useCallback(
+    (...args: A) => {
+      const now = Date.now()
+      if (now - lastRun.current < ms) return
+      lastRun.current = now
+      fn(...args)
+    },
+    [fn, ms],
+  )
 }
 
 /** "07:32" a partir de milisegundos. */

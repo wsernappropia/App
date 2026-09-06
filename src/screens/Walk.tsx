@@ -17,7 +17,15 @@ import { xpLabel } from '../lib/gamification'
 import { useNav } from '../lib/nav'
 import { useStore } from '../lib/store'
 import type { Pace } from '../lib/types'
-import { clearLocal, formatClock, readLocal, useTicker, useWakeLock, writeLocal } from './_shared'
+import {
+  clearLocal,
+  formatClock,
+  readLocal,
+  useOnce,
+  useTicker,
+  useWakeLock,
+  writeLocal,
+} from './_shared'
 
 export const ACTIVE_WALK_KEY = 'momentum-walk-active'
 
@@ -41,6 +49,11 @@ function isActiveWalk(value: unknown): value is ActiveWalk {
     typeof v.startedAt === 'number' &&
     typeof v.goalMinutes === 'number'
   )
+}
+
+/** ¿Quedó una caminata en curso (recarga, cierre de la app)? */
+export function hasActiveWalk(): boolean {
+  return readLocal(ACTIVE_WALK_KEY, isActiveWalk) !== null
 }
 
 const PACE_OPTIONS: { label: string; value: Pace }[] = [
@@ -122,13 +135,13 @@ export default function Walk() {
     setFinishOpen(true)
   }
 
-  function save(minutes: number, selectedPace: Pace, startedAt?: number) {
+  const save = useOnce(function save(minutes: number, selectedPace: Pace, startedAt?: number) {
     const xp = logWalk(minutes, selectedPace, startedAt)
     persist(null)
     setFinishOpen(false)
     toast.show(`${xpLabel(xp)} · ${minutes} min`)
     back()
-  }
+  })
 
   function changeGoal(minutes: number) {
     setGoalMinutes(minutes)
@@ -215,7 +228,7 @@ export default function Walk() {
             onChange={setManualMinutes}
             min={1}
             max={240}
-            step={5}
+            step={1}
             suffix=" min"
           />
         </div>

@@ -1,9 +1,10 @@
+import { useEffect } from 'react'
 import { ToastProvider } from './components/Toast'
 import { TabBar } from './components/TabBar'
 import { useNav } from './lib/nav'
 import type { Screen } from './lib/types'
 import Today from './screens/Today'
-import Walk from './screens/Walk'
+import Walk, { hasActiveWalk } from './screens/Walk'
 import Strength from './screens/Strength'
 import Nutrition from './screens/Nutrition'
 import Supplements from './screens/Supplements'
@@ -37,7 +38,14 @@ function renderScreen(screen: Screen) {
 
 export default function App() {
   const screen = useNav((s) => s.screen)
+  const go = useNav((s) => s.go)
   const isChild = CHILD_SCREENS.includes(screen)
+
+  // Si la app se recargó (o se cerró) con una caminata en curso, volvemos a ella
+  // para no perder el cronómetro.
+  useEffect(() => {
+    if (hasActiveWalk()) go('walk')
+  }, [go])
 
   return (
     <ToastProvider>

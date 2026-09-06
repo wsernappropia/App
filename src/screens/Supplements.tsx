@@ -6,10 +6,11 @@ import { EmptyState } from '../components/EmptyState'
 import { useToast } from '../components/Toast'
 import { IconCheck, IconPill } from '../components/icons'
 import { useStore, getDay } from '../lib/store'
-import { lastDays, todayKey } from '../lib/selectors'
+import { lastDays } from '../lib/selectors'
 import { supplementList } from '../lib/supplements'
 import { useNav } from '../lib/nav'
 import { weekdayShort } from '../lib/dates'
+import { useToday } from './_shared'
 
 export default function Supplements() {
   const state = useStore()
@@ -17,7 +18,7 @@ export default function Supplements() {
   const { show } = useToast()
   const go = useNav((s) => s.go)
 
-  const today = todayKey()
+  const today = useToday()
   const day = getDay(state, today)
   const active = supplementList(state.settings.enabledSupplements)
 

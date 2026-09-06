@@ -20,7 +20,7 @@ import { pendingReview, todayKey, weekStart, weekSummary } from '../lib/selector
 import { useStore } from '../lib/store'
 import type { MomentumStore } from '../lib/store'
 import type { Decision, MomentumData } from '../lib/types'
-import { range, useData } from './_shared'
+import { range, useData, useOnce } from './_shared'
 
 const DECISION_TONE: Record<Decision, 'default' | 'hero' | 'success' | 'warn'> = {
   reduce: 'warn',
@@ -125,16 +125,17 @@ function ReviewForm({ weekStartIso, data, back, onDone, onSave, toastShow }: Rev
   const diff = planDiff(data.plan, planAfter)
   const painEdited = pain !== summary.maxPain
 
-  function accept() {
+  const accept = useOnce(function accept() {
     const { review, xp } = onSave({
       weekStart: weekStartIso,
       energy,
       difficulty,
+      maxPain: pain,
       note: note.trim() || undefined,
     })
     toastShow(`${xpLabel(xp)} · ${DECISION_LABEL[review.decision]}`)
     onDone()
-  }
+  })
 
   return (
     <Screen title="Revisión semanal" subtitle={formatWeekRange(weekStartIso)} back onBack={back}>
@@ -155,7 +156,7 @@ function ReviewForm({ weekStartIso, data, back, onDone, onSave, toastShow }: Rev
           </div>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-3">
-          <Stat label="Minutos" value={summary.walkMinutes} hint={`${summary.walkSessions} caminatas`} />
+          <Stat label="Minutos" value={summary.walkMinutes} hint={`${summary.walkSessions} ${summary.walkSessions === 1 ? 'caminata' : 'caminatas'}`} />
           <Stat label="Fuerza" value={summary.strengthSessions} hint={`RPE ${summary.avgRpe ?? '—'}`} />
           <Stat
             label="Proteína"
@@ -222,8 +223,7 @@ function ReviewForm({ weekStartIso, data, back, onDone, onSave, toastShow }: Rev
         </div>
         {painEdited && (
           <p className="mt-2 text-xs leading-snug text-white/45">
-            Al guardar, el plan se calcula con el dolor registrado en las sesiones (
-            {summary.maxPain}/10).
+            Usaremos tu valor ({pain}/10) para decidir el plan de la próxima semana.
           </p>
         )}
       </Card>

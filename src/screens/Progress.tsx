@@ -11,10 +11,11 @@ import { TrendLine } from '../components/TrendLine'
 import { IconBack, IconChart } from '../components/icons'
 import { useStore } from '../lib/store'
 import { useNav } from '../lib/nav'
-import { addDays, dayAndMonth, formatWeekRange, todayKey, weekStart, weekdayShort } from '../lib/dates'
-import { daysOfWeek, missionDone, missionFor, pendingReview, weekSummary } from '../lib/selectors'
+import { addDays, dayAndMonth, formatWeekRange, weekStart, weekdayShort } from '../lib/dates'
+import { missionDone, missionFor, pendingReview, weekSummary } from '../lib/selectors'
 import { BADGES, BADGE_ORDER } from '../lib/gamification'
 import type { Decision, ISODate } from '../lib/types'
+import { useToday } from './_shared'
 
 const WEEKS_BACK = 8
 
@@ -38,8 +39,9 @@ export default function Progress() {
   const [weightInput, setWeightInput] = useState('')
   const [waistInput, setWaistInput] = useState('')
 
+  const today = useToday()
   const now = new Date()
-  const currentWeek = weekStart(todayKey(now))
+  const currentWeek = weekStart(today)
   const selectedWeek = weekStart(addDays(currentWeek, -7 * weeksAgo))
   const isCurrentWeek = selectedWeek === currentWeek
 
@@ -48,7 +50,6 @@ export default function Progress() {
     () => Array.from({ length: 7 }, (_, i) => addDays(selectedWeek, i)),
     [selectedWeek],
   )
-  const dayLogs = useMemo(() => daysOfWeek(state, selectedWeek), [state, selectedWeek])
 
   const weeklyBars = useMemo(() => {
     return Array.from({ length: WEEKS_BACK }, (_, i) => {
@@ -145,7 +146,7 @@ export default function Progress() {
 
         <div className="grid grid-cols-2 gap-3">
           <Card>
-            <Stat label="Min. caminados" value={summary.walkMinutes} hint={`${summary.walkSessions} sesiones`} />
+            <Stat label="Min. caminados" value={summary.walkMinutes} hint={`${summary.walkSessions} ${summary.walkSessions === 1 ? 'sesión' : 'sesiones'}`} />
           </Card>
           <Card>
             <Stat label="Sesiones fuerza" value={summary.strengthSessions} hint={summary.avgRpe != null ? `RPE medio ${summary.avgRpe}` : 'Sin datos'} />
@@ -165,37 +166,46 @@ export default function Progress() {
         <Card>
           <p className="mb-3 text-sm font-extrabold text-white">Semana día a día</p>
           <div className="grid grid-cols-7 gap-1.5">
-            {dayDates.map((date, i) => {
-              const day = dayLogs[i]
+            {dayDates.map((date) => {
               const mission = missionFor(state.settings, date)
               const done = mission === 'rest' ? false : missionDone(state, date)
               const isRest = mission === 'rest'
-              const isFuture = date > todayKey(now)
-              const failed = !isRest && !done && !isFuture && !!state.days[date]
-              let dot = 'bg-white/10 text-white/40'
-              let label = '—'
+              const isFuture = date > today
+              const isToday = date === today
+              // Un día pasado con misión y sin cumplir cuenta como fallo, haya o no
+              // otros registros: es lo mismo que resta en la adherencia.
+              let dot = 'bg-white/5 text-white/25'
+              let label = 'Pendiente'
+              let mark = ''
               if (isRest) {
                 dot = 'bg-white/5 text-white/40'
-                label = 'Desc.'
+                label = 'Descanso'
+                mark = '·'
               } else if (done) {
                 dot = 'bg-green/25 text-green'
                 label = 'Hecho'
-              } else if (failed) {
-                dot = 'bg-red/20 text-red'
-                label = 'Falló'
+                mark = '✓'
               } else if (isFuture) {
-                dot = 'bg-white/5 text-white/25'
-                label = '·'
-              } else {
+                label = 'Aún no'
+                mark = ''
+              } else if (isToday) {
                 dot = 'bg-yellow/20 text-yellow'
-                label = 'Hoy'
+                label = 'Hoy, pendiente'
+                mark = '•'
+              } else {
+                dot = 'bg-red/20 text-red'
+                label = 'Sin cumplir'
+                mark = '✕'
               }
-              void day
               return (
                 <div key={date} className="flex flex-col items-center gap-1">
                   <span className="text-[10px] font-bold uppercase text-white/40">{weekdayShort(date)}</span>
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-full text-[9px] font-extrabold ${dot}`}>
-                    {label === 'Hecho' ? '✓' : label === 'Falló' ? '✕' : label === 'Desc.' ? '·' : label === 'Hoy' ? '•' : ''}
+                  <div
+                    title={`${weekdayShort(date)}: ${label}`}
+                    aria-label={`${weekdayShort(date)}: ${label}`}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full text-[9px] font-extrabold ${dot}`}
+                  >
+                    {mark}
                   </div>
                 </div>
               )

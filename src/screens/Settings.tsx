@@ -7,6 +7,7 @@ import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/Toast'
 import { IconCheck, IconPill } from '../components/icons'
 import { useStore } from '../lib/store'
+import { useNav } from '../lib/nav'
 import { ALL_SUPPLEMENTS } from '../lib/supplements'
 import { DAY_SHORT } from '../lib/dates'
 import type { SupplementId } from '../lib/types'
@@ -46,6 +47,7 @@ export default function Settings() {
   const state = useStore()
   const { settings } = state
   const { show } = useToast()
+  const go = useNav((s) => s.go)
 
   const [resetOpen, setResetOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -122,6 +124,8 @@ export default function Settings() {
     state.resetAll()
     setResetOpen(false)
     show('Datos borrados')
+    // Volvemos a Hoy: ahí aparece el onboarding de nuevo.
+    go('today')
   }
 
   const version = typeof __APP_VERSION__ !== 'undefined' ? `Momentum v${__APP_VERSION__}` : 'Momentum v0.1'

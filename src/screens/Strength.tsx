@@ -13,7 +13,7 @@ import { HARD_SESSION } from '../lib/copy'
 import { xpLabel } from '../lib/gamification'
 import { useNav } from '../lib/nav'
 import { useStore } from '../lib/store'
-import { formatClock, plankSeconds, range } from './_shared'
+import { formatClock, plankSeconds, range, useOnce } from './_shared'
 
 const REST_SECONDS = 60
 
@@ -100,7 +100,7 @@ export default function Strength() {
     )
   }
 
-  function save() {
+  const save = useOnce(function save() {
     const xp = logStrength({
       roundsDone,
       roundsPlanned: rounds,
@@ -112,7 +112,7 @@ export default function Strength() {
     setFinishOpen(false)
     toast.show(isHard(rpe, pain) ? `${xpLabel(xp)} · repetir también es progreso` : xpLabel(xp))
     back()
-  }
+  })
 
   return (
     <Screen

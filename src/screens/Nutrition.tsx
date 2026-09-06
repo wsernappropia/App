@@ -8,11 +8,12 @@ import { Stepper } from '../components/Stepper'
 import { useToast } from '../components/Toast'
 import { MiniBars } from '../components/MiniBars'
 import { useStore, getDay } from '../lib/store'
-import { lastDays, proteinStatus, proteinTotal, todayKey } from '../lib/selectors'
+import { lastDays, proteinStatus, proteinTotal } from '../lib/selectors'
 import { PROTEIN_PRESETS, ZONE_LABEL } from '../lib/nutrition'
 import * as copy from '../lib/copy'
 import { weekdayShort } from '../lib/dates'
 import type { ProteinZone } from '../lib/types'
+import { useOnce, useToday } from './_shared'
 
 const ZONE_COLOR: Record<ProteinZone, string> = {
   rojo: 'var(--color-red)',
@@ -34,7 +35,7 @@ export default function Nutrition() {
   const [customGrams, setCustomGrams] = useState(20)
   const [customLabel, setCustomLabel] = useState('')
 
-  const today = todayKey()
+  const today = useToday()
   const status = proteinStatus(state, today)
   const day = getDay(state, today)
   const entries = [...day.protein].sort((a, b) => b.at - a.at)
@@ -53,13 +54,13 @@ export default function Nutrition() {
     show(xp > 0 ? `+${grams} g · +${xp} XP` : `+${grams} g`)
   }
 
-  function handleCustomAdd() {
+  const handleCustomAdd = useOnce(function handleCustomAdd() {
     if (customGrams <= 0) return
     handleAdd(customGrams, customLabel.trim() || 'Otra cantidad')
     setCustomOpen(false)
     setCustomGrams(20)
     setCustomLabel('')
-  }
+  })
 
   const ringValue = status.goal > 0 ? Math.min(1, status.grams / status.goal) : 0
 
