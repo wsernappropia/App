@@ -13,7 +13,8 @@ export function missionWalkMessage(minutes: number): string {
 
 /** 6.2 — Día normal (fuerza). Rondas/reps vienen del plan. */
 export function missionStrengthMessage(rounds: number, reps: number): string {
-  return `Tu misión: fuerza: ${rounds} rondas de ${reps} reps. Si hoy está pesado, 5 min de caminata mantienen la racha.`
+  const r = `${rounds} ronda${rounds === 1 ? '' : 's'}`
+  return `Tu misión: fuerza: ${r} de ${reps} reps. Si hoy está pesado, 5 min de caminata mantienen la racha.`
 }
 
 /** 6.2 — Después de faltar. */

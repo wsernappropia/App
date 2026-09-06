@@ -188,6 +188,7 @@ function computeBadges(data: MomentumData, now: Date, touched: ISODate): BadgeId
   if (s.best >= 30) badges.add('streak-30')
   if (levelInfo(data.game.xp).level >= 5) badges.add('level-5')
   if (data.reviews.length >= 1) badges.add('review-1')
+  if (data.reviews.some((r) => r.adherence >= 1)) badges.add('week-perfect')
 
   // protein-7: 7 días seguidos con proteína >= mínimo (ventana reciente)
   const today = todayKey(now)
