@@ -47,6 +47,9 @@ const lastErrors: Record<DiagnosticArea, DiagnosticError | null> = {
 export function recordError(area: DiagnosticArea, context: string, err: unknown): DiagnosticError {
   const entry: DiagnosticError = { at: Date.now(), context, message: errorMessage(err) }
   lastErrors[area] = entry
+  // También va al registro global: así el panel muestra la SECUENCIA de fallos
+  // (p. ej. tres timeouts seguidos) y no sólo el último de cada área.
+  pushGlobalError(`${area}/${context}`, entry.message)
   console.warn(`[${area}] ${context}: ${entry.message}`, err)
   return entry
 }
@@ -67,6 +70,8 @@ export function resetDiagnostics(): void {
   lastErrors.health = null
   lastErrors.sw = null
   lastErrors.native = null
+  globalErrors.length = 0
+  installed = false
 }
 
 /** "hace 3 min", para pintar la antigüedad de un error. */
@@ -76,4 +81,67 @@ export function formatErrorLine(entry: DiagnosticError | null): string {
   const hh = String(when.getHours()).padStart(2, '0')
   const mm = String(when.getMinutes()).padStart(2, '0')
   return `${hh}:${mm} · ${entry.context}: ${entry.message}`
+}
+
+// ------------------------------------------------- registro global de errores
+//
+// En el APK no hay consola que mirar: un error de JavaScript (un chunk que no
+// carga, una promesa rechazada sin `catch`) simplemente deja la pantalla a
+// medias. Aquí se guardan los últimos 30, y el panel de Diagnóstico los enseña.
+
+/** Cuántos errores se conservan (los más recientes). */
+export const MAX_GLOBAL_ERRORS = 30
+
+export interface GlobalErrorEntry {
+  at: number
+  /** De dónde vino: 'window.onerror', 'unhandledrejection', 'health/isAvailable'… */
+  source: string
+  message: string
+}
+
+const globalErrors: GlobalErrorEntry[] = []
+
+/** Añade una entrada al registro global (descarta la más antigua si se llena). */
+export function pushGlobalError(source: string, message: string): GlobalErrorEntry {
+  const entry: GlobalErrorEntry = { at: Date.now(), source, message }
+  globalErrors.push(entry)
+  if (globalErrors.length > MAX_GLOBAL_ERRORS) globalErrors.splice(0, globalErrors.length - MAX_GLOBAL_ERRORS)
+  return entry
+}
+
+/** Los últimos errores capturados, del más antiguo al más reciente. */
+export function getGlobalErrors(): readonly GlobalErrorEntry[] {
+  return globalErrors
+}
+
+/** "12:03 · unhandledrejection: timeout: isAvailable" */
+export function formatGlobalError(entry: GlobalErrorEntry): string {
+  const when = new Date(entry.at)
+  const hh = String(when.getHours()).padStart(2, '0')
+  const mm = String(when.getMinutes()).padStart(2, '0')
+  const ss = String(when.getSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss} · ${entry.source}: ${entry.message}`
+}
+
+let installed = false
+
+/**
+ * Engancha `error` y `unhandledrejection` del documento. Se llama lo antes
+ * posible en `main.tsx` para no perderse los fallos del arranque.
+ * Idempotente: llamarla dos veces no duplica los listeners.
+ */
+export function installGlobalErrorLog(target: Pick<Window, 'addEventListener'> | undefined = typeof window !== 'undefined' ? window : undefined): void {
+  if (installed || !target) return
+  installed = true
+
+  target.addEventListener('error', (event: Event) => {
+    const e = event as ErrorEvent
+    const where = e.filename ? ` (${e.filename}:${e.lineno ?? 0})` : ''
+    pushGlobalError('window.onerror', `${errorMessage(e.error ?? e.message)}${where}`)
+  })
+
+  target.addEventListener('unhandledrejection', (event: Event) => {
+    const e = event as PromiseRejectionEvent
+    pushGlobalError('unhandledrejection', errorMessage(e.reason))
+  })
 }

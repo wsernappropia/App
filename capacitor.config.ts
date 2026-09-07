@@ -9,6 +9,10 @@ const config: CapacitorConfig = {
   android: {
     // La app es 100 % local: nada de cargar http:// dentro del WebView https.
     allowMixedContent: false,
+    // Depuración remota del WebView por USB (chrome://inspect). Es una app
+    // personal que se instala por sideload, no hay secretos que proteger, y sin
+    // esto no hay forma de ver la consola del APK en un móvil real. Ver README.
+    webContentsDebuggingEnabled: true,
   },
   backgroundColor: '#0b1a2b',
   plugins: {

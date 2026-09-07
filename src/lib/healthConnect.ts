@@ -1,9 +1,14 @@
 // Capa nativa de Health Connect (Capacitor + @capgo/capacitor-health).
 //
-// Igual que `notifications.ts`: todo es un no-op en la web. `isNativePlatform()`
-// es false, el plugin ni se importa (import dinámico) y la PWA no crece ni se
-// rompe. La lógica de QUÉ insertar vive en `health.ts` (pura y testeada) y en
-// `store.applyHealthSnapshot`; aquí sólo se lee del plugin y se mapea.
+// Igual que `notifications.ts`: todo es un no-op en la web (`isNativePlatform()`
+// es false y ninguna función llega a tocar el plugin). La lógica de QUÉ insertar
+// vive en `health.ts` (pura y testeada) y en `store.applyHealthSnapshot`; aquí
+// sólo se lee del plugin y se mapea.
+//
+// El plugin se importa de forma ESTÁTICA y toda llamada nativa lleva TIMEOUT:
+// ver el comentario largo de `notifications.ts` — un `import()` dinámico que no
+// resuelve, o una llamada al puente que nunca contesta, dejaban el interruptor
+// de Ajustes y el panel de Diagnóstico colgados sin decir nada.
 //
 // API real del plugin usada (v8.10.x):
 //   Health.isAvailable()                      -> { available, platform, reason }
@@ -15,11 +20,14 @@
 import { useEffect } from 'react'
 import { Capacitor } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
+import { App } from '@capacitor/app'
+import { Health } from '@capgo/capacitor-health'
 import type {
   AuthorizationStatus,
   HealthDataType,
   Workout,
 } from '@capgo/capacitor-health'
+import { NATIVE_TIMEOUT_MS, PERMISSION_TIMEOUT_MS, withTimeout } from './async'
 import { toISODate } from './dates'
 import { clearError, getLastError, recordError } from './diagnostics'
 import { HEALTH_SYNC_DAYS, HEALTH_SYNC_THROTTLE_MS } from './health'
@@ -27,7 +35,10 @@ import type { HealthSnapshot, HealthWalk } from './health'
 import { useStore } from './store'
 import type { ISODate } from './types'
 
-type Plugin = typeof import('@capgo/capacitor-health').Health
+type Plugin = typeof Health
+
+/** Nombre con el que el plugin se registra en el puente (`registerPlugin('Health')`). */
+export const HEALTH_PLUGIN_NAME = 'Health'
 
 /**
  * Tipos que Momentum lee. `workouts` mapea a READ_EXERCISE en Health Connect;
@@ -52,23 +63,21 @@ const MAX_WORKOUTS = 200
 const MAX_HR_SAMPLES = 2000
 
 export function isNativeHealth(): boolean {
-  return Capacitor.isNativePlatform()
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
 }
 
-let pluginPromise: Promise<Plugin | null> | null = null
+/** El plugin, o null fuera de la app nativa. Síncrono: nada que pueda colgarse. */
+function plugin(): Plugin | null {
+  return isNativeHealth() ? Health : null
+}
 
-/** Carga perezosa del plugin. null en web o si el import falla. */
-async function loadPlugin(): Promise<Plugin | null> {
-  if (!isNativeHealth()) return null
-  if (!pluginPromise) {
-    pluginPromise = import('@capgo/capacitor-health')
-      .then((m) => m.Health)
-      .catch((err) => {
-        recordError('health', 'import del plugin', err)
-        return null
-      })
-  }
-  return pluginPromise
+/** Llamada al puente nativo con límite de tiempo. Rechaza con "timeout: <label>". */
+function nativeCall<T>(label: string, run: () => Promise<T>, ms: number = NATIVE_TIMEOUT_MS): Promise<T> {
+  return withTimeout(run(), ms, label)
 }
 
 // ------------------------------------------------------ disponibilidad
@@ -86,7 +95,7 @@ export interface HealthAvailability {
 
 /** ¿Hay Health Connect en este teléfono? Con motivo, para poder explicarlo. */
 export async function availabilityDetail(): Promise<HealthAvailability> {
-  const health = await loadPlugin()
+  const health = plugin()
   if (!health) {
     return {
       pluginLoaded: false,
@@ -97,7 +106,7 @@ export async function availabilityDetail(): Promise<HealthAvailability> {
     }
   }
   try {
-    const result = (await health.isAvailable()) as {
+    const result = (await nativeCall('isAvailable', () => health.isAvailable())) as {
       available?: boolean
       reason?: string
       platform?: string
@@ -127,10 +136,12 @@ function granted(status: AuthorizationStatus): boolean {
 
 /** Permisos ya concedidos, sin abrir ningún diálogo. */
 export async function hasPermissions(): Promise<boolean> {
-  const health = await loadPlugin()
+  const health = plugin()
   if (!health) return false
   try {
-    return granted(await health.checkAuthorization({ read: READ_TYPES }))
+    return granted(
+      await nativeCall('checkAuthorization', () => health.checkAuthorization({ read: READ_TYPES })),
+    )
   } catch (err) {
     recordError('health', 'checkAuthorization', err)
     return false
@@ -149,7 +160,7 @@ export interface HealthPermissionResult {
 
 /** Abre el diálogo de Health Connect. Nunca lanza: devuelve el motivo. */
 export async function requestPermissions(): Promise<HealthPermissionResult> {
-  const health = await loadPlugin()
+  const health = plugin()
   if (!health) {
     return {
       granted: false,
@@ -160,7 +171,9 @@ export async function requestPermissions(): Promise<HealthPermissionResult> {
     }
   }
   try {
-    const current = await health.checkAuthorization({ read: READ_TYPES })
+    const current = await nativeCall('checkAuthorization', () =>
+      health.checkAuthorization({ read: READ_TYPES }),
+    )
     if (granted(current)) {
       clearError('health')
       return {
@@ -170,7 +183,12 @@ export async function requestPermissions(): Promise<HealthPermissionResult> {
         readDenied: current.readDenied ?? [],
       }
     }
-    const asked = await health.requestAuthorization({ read: READ_TYPES })
+    // Abre el diálogo de Health Connect: tarda lo que tarde la persona.
+    const asked = await nativeCall(
+      'requestAuthorization',
+      () => health.requestAuthorization({ read: READ_TYPES }),
+      PERMISSION_TIMEOUT_MS,
+    )
     const ok = granted(asked)
     if (ok) clearError('health')
     return {
@@ -187,10 +205,12 @@ export async function requestPermissions(): Promise<HealthPermissionResult> {
 
 /** Permisos vigentes (sin abrir diálogo), para el panel de Diagnóstico. */
 export async function authorizationDetail(): Promise<HealthPermissionResult> {
-  const health = await loadPlugin()
+  const health = plugin()
   if (!health) return { granted: false, reason: 'no-plugin' }
   try {
-    const current = await health.checkAuthorization({ read: READ_TYPES })
+    const current = await nativeCall('checkAuthorization', () =>
+      health.checkAuthorization({ read: READ_TYPES }),
+    )
     return {
       granted: granted(current),
       reason: granted(current) ? 'granted' : 'denied',
@@ -205,10 +225,10 @@ export async function authorizationDetail(): Promise<HealthPermissionResult> {
 
 /** Abre los ajustes de Health Connect del sistema (para revisar permisos). */
 export async function openHealthSettings(): Promise<void> {
-  const health = await loadPlugin()
+  const health = plugin()
   if (!health) return
   try {
-    await health.openHealthConnectSettings()
+    await nativeCall('openHealthConnectSettings', () => health.openHealthConnectSettings())
   } catch (err) {
     recordError('health', 'openHealthConnectSettings', err)
   }
@@ -278,7 +298,7 @@ export async function readSnapshot(
   days: number = HEALTH_SYNC_DAYS,
   now: Date = new Date(),
 ): Promise<Record<ISODate, HealthSnapshot>> {
-  const health = await loadPlugin()
+  const health = plugin()
   if (!health) return {}
 
   const start = startOfDay(new Date(now.getTime() - (Math.max(1, days) - 1) * 86_400_000))
@@ -289,13 +309,15 @@ export async function readSnapshot(
   // Pasos: un bucket por día local (el plugin corta desde `startDate`, que es
   // medianoche local, así que los buckets caen en días naturales).
   try {
-    const { samples } = await health.queryAggregated({
-      dataType: 'steps',
-      startDate: startISO,
-      endDate: endISO,
-      bucket: 'day',
-      aggregation: 'sum',
-    })
+    const { samples } = await nativeCall('queryAggregated (pasos)', () =>
+      health.queryAggregated({
+        dataType: 'steps',
+        startDate: startISO,
+        endDate: endISO,
+        bucket: 'day',
+        aggregation: 'sum',
+      }),
+    )
     for (const sample of samples) {
       const at = new Date(sample.startDate)
       if (Number.isNaN(at.getTime())) continue
@@ -310,13 +332,15 @@ export async function readSnapshot(
   // Pulso de la ventana, para estimar el pulso medio de cada caminata.
   let hr: HrSample[] = []
   try {
-    const { samples } = await health.readSamples({
-      dataType: 'heartRate',
-      startDate: startISO,
-      endDate: endISO,
-      limit: MAX_HR_SAMPLES,
-      ascending: true,
-    })
+    const { samples } = await nativeCall('readSamples (pulso)', () =>
+      health.readSamples({
+        dataType: 'heartRate',
+        startDate: startISO,
+        endDate: endISO,
+        limit: MAX_HR_SAMPLES,
+        ascending: true,
+      }),
+    )
     hr = samples
       .map((s) => ({ at: Date.parse(s.startDate), value: s.value }))
       .filter((s) => Number.isFinite(s.at) && s.value > 0)
@@ -327,12 +351,14 @@ export async function readSnapshot(
 
   // Caminatas y senderismo.
   try {
-    const { workouts } = await health.queryWorkouts({
-      startDate: startISO,
-      endDate: endISO,
-      limit: MAX_WORKOUTS,
-      ascending: true,
-    })
+    const { workouts } = await nativeCall('queryWorkouts', () =>
+      health.queryWorkouts({
+        startDate: startISO,
+        endDate: endISO,
+        limit: MAX_WORKOUTS,
+        ascending: true,
+      }),
+    )
     for (const workout of workouts) {
       if (!WALK_WORKOUTS.has(workout.workoutType)) continue
       const walk = toWalk(workout, hr)
@@ -345,13 +371,15 @@ export async function readSnapshot(
 
   // Peso: la medición más reciente de la ventana, en el día en que se tomó.
   try {
-    const { samples } = await health.readSamples({
-      dataType: 'weight',
-      startDate: startISO,
-      endDate: endISO,
-      limit: 1,
-      ascending: false,
-    })
+    const { samples } = await nativeCall('readSamples (peso)', () =>
+      health.readSamples({
+        dataType: 'weight',
+        startDate: startISO,
+        endDate: endISO,
+        limit: 1,
+        ascending: false,
+      }),
+    )
     const latest = samples[0]
     if (latest && latest.value > 0) {
       const at = Date.parse(latest.startDate)
@@ -441,10 +469,11 @@ export function useHealthSync(): void {
 
     void (async () => {
       try {
-        const { App } = await import('@capacitor/app')
-        const handle = await App.addListener('appStateChange', ({ isActive }) => {
-          if (isActive) requestSync()
-        })
+        const handle = await nativeCall('addListener appStateChange', () =>
+          App.addListener('appStateChange', ({ isActive }) => {
+            if (isActive) requestSync()
+          }),
+        )
         if (disposed) void handle.remove()
         else handles.push(handle)
       } catch (err) {

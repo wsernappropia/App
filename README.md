@@ -232,11 +232,36 @@ Por eso `src/lib/sw.ts` decide por origen (no solo por `isNativePlatform()`, que
 - **Web/PWA** → registra el service worker como siempre.
 - **WebView de Capacitor** (`https://localhost`) → no registra nada, y si encuentra uno de una versión anterior lo **desregistra, borra sus caches y recarga la app una sola vez** (marca en `sessionStorage` para no entrar en bucle). Por eso, al abrir por primera vez un APK nuevo viniendo de la v0.1.4 o anterior, la app puede parpadear/recargarse una vez: es normal y sólo pasa esa vez.
 
+Y además, desde la v0.1.6, `sw.js` y `workbox-*.js` **ni siquiera se empaquetan en el APK**: `npm run build:android` los borra de `android/app/src/main/assets/public` después de `cap sync` (`scripts/strip-service-worker.mjs`). Si el archivo no está, no hay nada que registrar ni que pueda servir un `index.html` sin puente.
+
 ### Reportar un problema: "Diagnóstico"
 
-Al final de **Ajustes** hay una tarjeta plegable **Diagnóstico** con lo que la app ve en ese teléfono: versión, plataforma, `isNativePlatform`, si hay service worker, origen, si cargaron los plugins de notificaciones y Health Connect, permisos concedidos/denegados, última sincronización y el último error de cada área. El botón **"Copiar diagnóstico"** lo copia entero al portapapeles (si el WebView no deja copiar, aparece el texto para seleccionarlo a mano).
+Al final de **Ajustes** hay una tarjeta plegable **Diagnóstico** con lo que la app ve en ese teléfono. Está pensada para no poder colgarse nunca:
 
-Si algo no funciona —un interruptor que no se activa, notificaciones que no llegan, Health Connect que no sincroniza— abre Diagnóstico, cópialo y pégalo en el reporte: ahí sale el motivo real del fallo.
+1. **Al abrirla aparecen de inmediato** los datos que no requieren esperar a nadie: versión, plataforma, `isNativePlatform`, si existe `window.androidBridge`, la **lista de plugins que el puente dice tener registrados**, `isPluginAvailable` de `App`, `LocalNotifications` y `Health`, el origen, si hay un service worker controlando la página y el **userAgent** (que revela la versión del WebView de Android).
+2. **Debajo, cinco comprobaciones** que sí hablan con el sistema y por eso podrían tardar. Cada una va **por su cuenta y con un límite de 5 segundos**: `getRegistrations()`, `App.getInfo()`, `LocalNotifications.checkPermissions()`, `Health.isAvailable()` y `Health.checkAuthorization()`. Si una se queda colgada, su línea pasa a `timeout: …` en rojo y **las demás siguen apareciendo igual**.
+   `App.getInfo()` es la **comprobación de control**: si esa falla o hace timeout, el problema no es un plugin concreto sino el puente de Capacitor entero.
+3. **Errores capturados**: los últimos 30 errores de JavaScript y promesas rechazadas sin `catch`, con hora. Es lo más parecido a un logcat que hay sin cable.
+
+Botones:
+
+- **Compartir** — abre la hoja de compartir de Android (WhatsApp, correo, notas…). Es la vía más cómoda para mandar el diagnóstico.
+- **Copiar** — al portapapeles. Si el WebView no deja copiar, aparece un cuadro de texto con todo dentro para seleccionarlo a mano.
+- **Actualizar** — vuelve a lanzar las comprobaciones.
+
+Si algo no funciona —un interruptor que no se activa, notificaciones que no llegan, Health Connect que no sincroniza— abre Diagnóstico, **espera 5 segundos** a que terminen las comprobaciones y usa **Compartir** o **Copiar**: ahí sale el motivo real del fallo.
+
+### Depuración remota del WebView (chrome://inspect)
+
+Último recurso cuando el Diagnóstico no basta. El APK se compila con `webContentsDebuggingEnabled: true` (`capacitor.config.ts`), así que el WebView de Momentum se puede inspeccionar desde un ordenador igual que una pestaña de Chrome:
+
+1. En el móvil: *Ajustes → Acerca del teléfono → Número de compilación* (tocar 7 veces) y luego *Opciones de desarrollador → **Depuración por USB*** activada.
+2. Conectar el móvil al ordenador por USB y aceptar el diálogo *"¿Permitir depuración USB?"*.
+3. Abrir Momentum en el móvil.
+4. En el ordenador, en Chrome: **`chrome://inspect/#devices`** → aparece `com.momentum.habits` → **inspect**.
+5. Ahí están la **consola**, la pestaña **Network** (para ver si algún chunk `.js` de `assets/public/assets/` da 404) y **Application → Service Workers**.
+
+Con esto se ve el error exacto que la app no puede contar por sí misma. No hace falta ningún build especial: el APK de release ya viene preparado.
 
 ### ¿Y en iPhone?
 

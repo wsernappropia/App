@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:android": "npm run build && cap sync android",
+    "build:android": "npm run build && cap sync android && node scripts/strip-service-worker.mjs",
     "android:apk": "npm run build:android && cd android && ./gradlew assembleRelease",
     "preview": "vite preview",
     "typecheck": "tsc -b",

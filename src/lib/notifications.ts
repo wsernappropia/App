@@ -1,13 +1,33 @@
 // Capa nativa de los recordatorios (Capacitor + @capacitor/local-notifications).
 //
 // Todo lo que hay aquí es un no-op en la web: `Capacitor.isNativePlatform()` es
-// false y el plugin ni siquiera se importa (import dinámico), así que el bundle
-// de la PWA no crece ni se rompe. La lógica de QUÉ programar vive en
-// `reminders.ts` (puro y testeado); aquí sólo se traduce a llamadas del plugin.
+// false y ninguna función llega a tocar el plugin. La lógica de QUÉ programar
+// vive en `reminders.ts` (puro y testeado); aquí sólo se traduce a llamadas del
+// plugin.
+//
+// Dos reglas de oro, aprendidas depurando el APK a ciegas:
+//
+//  1. IMPORT ESTÁTICO del plugin. Antes se cargaba con `import()` dinámico
+//     "para no engordar el bundle web". Dentro del WebView eso significa pedir
+//     un chunk extra al servidor local de Capacitor: si ese chunk no está en
+//     `assets/public/assets/` o la petición se queda a medias, la promesa del
+//     import NUNCA se resuelve y todo lo que la espera se cuelga en silencio
+//     (interruptores que no reaccionan, Diagnóstico eternamente "Recogiendo
+//     datos"). `registerPlugin()` es perezoso de por sí: importar el módulo no
+//     llama a nada nativo, así que en la web sigue sin pasar nada.
+//
+//  2. TIMEOUT EN TODA LLAMADA NATIVA. El puente de Capacitor no garantiza que
+//     una llamada responda: si el plugin no está registrado, o el diálogo del
+//     sistema se traga el callback, la promesa se queda pendiente para siempre.
+//     Con `withTimeout` cada espera se rinde y deja un error legible en el
+//     panel de Diagnóstico.
 import { useEffect } from 'react'
 import { Capacitor } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
+import { App } from '@capacitor/app'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import type { ActionPerformed, LocalNotificationSchema } from '@capacitor/local-notifications'
+import { NATIVE_TIMEOUT_MS, PERMISSION_TIMEOUT_MS, withTimeout } from './async'
 import { useNav } from './nav'
 import { clearError, getLastError, recordError } from './diagnostics'
 import { useStore } from './store'
@@ -32,26 +52,27 @@ const ICON_COLOR = '#14b8a6'
 /** Ventana de agrupación de resincronizaciones. */
 export const SYNC_DEBOUNCE_MS = 1000
 
-type Plugin = typeof import('@capacitor/local-notifications').LocalNotifications
+type Plugin = typeof LocalNotifications
 
 export function isNative(): boolean {
-  return Capacitor.isNativePlatform()
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
 }
 
-let pluginPromise: Promise<Plugin | null> | null = null
+/**
+ * El plugin, o null si no estamos en la app nativa. Es SÍNCRONO a propósito:
+ * el módulo ya está en el bundle, no hay ningún import que pueda colgarse.
+ */
+function plugin(): Plugin | null {
+  return isNative() ? LocalNotifications : null
+}
 
-/** Carga perezosa del plugin. Devuelve null en web o si el import falla. */
-async function loadPlugin(): Promise<Plugin | null> {
-  if (!isNative()) return null
-  if (!pluginPromise) {
-    pluginPromise = import('@capacitor/local-notifications')
-      .then((m) => m.LocalNotifications)
-      .catch((err) => {
-        recordError('notifications', 'import del plugin', err)
-        return null
-      })
-  }
-  return pluginPromise
+/** Llamada al puente nativo con límite de tiempo. Rechaza con "timeout: <label>". */
+function nativeCall<T>(label: string, run: () => Promise<T>, ms: number = NATIVE_TIMEOUT_MS): Promise<T> {
+  return withTimeout(run(), ms, label)
 }
 
 let channelReady: Promise<void> | null = null
@@ -59,8 +80,8 @@ let channelReady: Promise<void> | null = null
 async function ensureChannel(ln: Plugin): Promise<void> {
   if (Capacitor.getPlatform() !== 'android') return
   if (!channelReady) {
-    channelReady = ln
-      .createChannel({
+    channelReady = nativeCall('createChannel', () =>
+      ln.createChannel({
         id: CHANNEL_ID,
         name: CHANNEL_NAME,
         description: 'Avisos para completar tu Día Mínimo',
@@ -68,10 +89,10 @@ async function ensureChannel(ln: Plugin): Promise<void> {
         visibility: 1,
         lights: false,
         vibration: true,
-      })
-      .catch((err) => {
-        recordError('notifications', 'createChannel', err)
-      })
+      }),
+    ).catch((err) => {
+      recordError('notifications', 'createChannel', err)
+    })
   }
   return channelReady
 }
@@ -80,10 +101,10 @@ async function ensureChannel(ln: Plugin): Promise<void> {
 
 /** ¿Está concedido el permiso de notificaciones? */
 export async function hasPermission(): Promise<boolean> {
-  const ln = await loadPlugin()
+  const ln = plugin()
   if (!ln) return false
   try {
-    const status = await ln.checkPermissions()
+    const status = await nativeCall('checkPermissions', () => ln.checkPermissions())
     return status.display === 'granted'
   } catch (err) {
     recordError('notifications', 'checkPermissions', err)
@@ -107,7 +128,7 @@ export interface PermissionResult {
  * Nunca lanza: devuelve el motivo para que Ajustes pueda mostrarlo.
  */
 export async function requestPermission(): Promise<PermissionResult> {
-  const ln = await loadPlugin()
+  const ln = plugin()
   if (!ln) {
     const err = getLastError('notifications')
     return {
@@ -119,12 +140,17 @@ export async function requestPermission(): Promise<PermissionResult> {
     }
   }
   try {
-    const current = await ln.checkPermissions()
+    const current = await nativeCall('checkPermissions', () => ln.checkPermissions())
     if (current.display === 'granted') {
       clearError('notifications')
       return { granted: true, reason: 'granted', display: current.display }
     }
-    const asked = await ln.requestPermissions()
+    // El diálogo de Android 13+ puede tardar lo que la persona tarde en decidir.
+    const asked = await nativeCall(
+      'requestPermissions',
+      () => ln.requestPermissions(),
+      PERMISSION_TIMEOUT_MS,
+    )
     const granted = asked.display === 'granted'
     if (granted) clearError('notifications')
     return {
@@ -146,10 +172,10 @@ export interface NotificationsDiagnostics {
 }
 
 export async function notificationsDiagnostics(): Promise<NotificationsDiagnostics> {
-  const ln = await loadPlugin()
-  if (!ln) return { pluginLoaded: false, permission: 'sin plugin' }
+  const ln = plugin()
+  if (!ln) return { pluginLoaded: false, permission: isNative() ? 'sin plugin' : 'no nativo' }
   try {
-    const status = await ln.checkPermissions()
+    const status = await nativeCall('checkPermissions', () => ln.checkPermissions())
     return { pluginLoaded: true, permission: status.display }
   } catch (err) {
     const entry = recordError('notifications', 'checkPermissions', err)
@@ -165,12 +191,12 @@ export async function notificationsDiagnostics(): Promise<NotificationsDiagnosti
  * prueba recién lanzada no se lleva por delante.
  */
 async function cancelPlanned(ln: Plugin): Promise<void> {
-  const pending = await ln.getPending()
+  const pending = await nativeCall('getPending', () => ln.getPending())
   const ids = pending.notifications
     .map((n) => n.id)
     .filter((id) => isPlannedReminderId(id))
     .map((id) => ({ id }))
-  if (ids.length > 0) await ln.cancel({ notifications: ids })
+  if (ids.length > 0) await nativeCall('cancel', () => ln.cancel({ notifications: ids }))
 }
 
 /**
@@ -188,7 +214,7 @@ export async function syncReminders(
   state: MomentumData = useStore.getState(),
   now: Date = new Date(),
 ): Promise<number> {
-  const ln = await loadPlugin()
+  const ln = plugin()
   if (!ln) return 0
   try {
     await ensureChannel(ln)
@@ -201,20 +227,22 @@ export async function syncReminders(
     const planned = planReminders(state, settings, now)
     if (planned.length === 0) return 0
 
-    await ln.schedule({
-      notifications: planned.map((p) => ({
-        id: p.id,
-        title: p.title,
-        body: p.body,
-        channelId: CHANNEL_ID,
-        smallIcon: SMALL_ICON,
-        iconColor: ICON_COLOR,
-        autoCancel: true,
-        isExactNotification: false,
-        extra: { reminder: p.reminder, date: p.date },
-        schedule: { at: p.at, allowWhileIdle: true },
-      })),
-    })
+    await nativeCall('schedule', () =>
+      ln.schedule({
+        notifications: planned.map((p) => ({
+          id: p.id,
+          title: p.title,
+          body: p.body,
+          channelId: CHANNEL_ID,
+          smallIcon: SMALL_ICON,
+          iconColor: ICON_COLOR,
+          autoCancel: true,
+          isExactNotification: false,
+          extra: { reminder: p.reminder, date: p.date },
+          schedule: { at: p.at, allowWhileIdle: true },
+        })),
+      }),
+    )
     return planned.length
   } catch (err) {
     recordError('notifications', 'schedule', err)
@@ -224,7 +252,7 @@ export async function syncReminders(
 
 /** Cancela todo lo planificado (al apagar el interruptor maestro). */
 export async function cancelAllReminders(): Promise<void> {
-  const ln = await loadPlugin()
+  const ln = plugin()
   if (!ln) return
   try {
     await cancelPlanned(ln)
@@ -237,26 +265,28 @@ export async function cancelAllReminders(): Promise<void> {
 export const TEST_DELAY_MS = 5000
 
 export async function sendTestNotification(): Promise<boolean> {
-  const ln = await loadPlugin()
+  const ln = plugin()
   if (!ln) return false
   try {
     await ensureChannel(ln)
-    await ln.schedule({
-      notifications: [
-        {
-          id: TEST_NOTIFICATION_ID,
-          title: 'Momentum',
-          body: 'Así se verán tus recordatorios. 5 minutos mantienen el ritmo.',
-          channelId: CHANNEL_ID,
-          smallIcon: SMALL_ICON,
-          iconColor: ICON_COLOR,
-          autoCancel: true,
-          isExactNotification: false,
-          extra: { reminder: 'mission' },
-          schedule: { at: new Date(Date.now() + TEST_DELAY_MS), allowWhileIdle: true },
-        },
-      ],
-    })
+    await nativeCall('schedule (prueba)', () =>
+      ln.schedule({
+        notifications: [
+          {
+            id: TEST_NOTIFICATION_ID,
+            title: 'Momentum',
+            body: 'Así se verán tus recordatorios. 5 minutos mantienen el ritmo.',
+            channelId: CHANNEL_ID,
+            smallIcon: SMALL_ICON,
+            iconColor: ICON_COLOR,
+            autoCancel: true,
+            isExactNotification: false,
+            extra: { reminder: 'mission' },
+            schedule: { at: new Date(Date.now() + TEST_DELAY_MS), allowWhileIdle: true },
+          },
+        ],
+      }),
+    )
     return true
   } catch (err) {
     recordError('notifications', 'notificación de prueba', err)
@@ -318,22 +348,25 @@ export function useReminderSync(): void {
 
     void (async () => {
       try {
-        const { App } = await import('@capacitor/app')
         track(
-          await App.addListener('appStateChange', ({ isActive }) => {
-            if (isActive) requestSync()
-          }),
+          await nativeCall('addListener appStateChange', () =>
+            App.addListener('appStateChange', ({ isActive }) => {
+              if (isActive) requestSync()
+            }),
+          ),
         )
       } catch (err) {
         recordError('notifications', 'appStateChange', err)
       }
-      const ln = await loadPlugin()
+      const ln = plugin()
       if (!ln) return
       try {
         track(
-          await ln.addListener('localNotificationActionPerformed', (action: ActionPerformed) => {
-            openScreenFor(action.notification)
-          }),
+          await nativeCall('addListener localNotificationActionPerformed', () =>
+            ln.addListener('localNotificationActionPerformed', (action: ActionPerformed) => {
+              openScreenFor(action.notification)
+            }),
+          ),
         )
       } catch (err) {
         recordError('notifications', 'listener de toque', err)

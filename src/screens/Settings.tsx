@@ -51,7 +51,12 @@ export default function Settings() {
   const health = settings.health
   const nativeHealth = isNativeHealth()
   const [healthError, setHealthError] = useState<string | null>(null)
+  // "busy" sólo pinta un "…" al lado del interruptor: NUNCA lo desactiva. Si una
+  // llamada nativa se colgase, un toggle deshabilitado dejaría la pantalla
+  // muerta sin explicación; con los timeouts de `lib/async.ts` toda espera
+  // termina (como mucho, con un Toast que dice "timeout: …").
   const [healthBusy, setHealthBusy] = useState(false)
+  const [remindersBusy, setRemindersBusy] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [exportText, setExportText] = useState<string | null>(null)
@@ -74,13 +79,17 @@ export default function Settings() {
   }
 
   async function toggleReminders(next: boolean) {
+    if (remindersBusy) return
     if (!next) {
       state.updateSettings({ reminders: { ...reminders, enabled: false } })
       setPermissionDenied(false)
       void cancelAllReminders()
       return
     }
+    setRemindersBusy(true)
     try {
+      // `requestPermission` nunca se queda colgado: sus llamadas nativas llevan
+      // timeout y devuelven `reason: 'error'` con "timeout: requestPermissions".
       const result = await requestPermission()
       if (!result.granted) {
         // El interruptor se queda apagado: sin permiso no hay nada que programar.
@@ -97,6 +106,8 @@ export default function Settings() {
     } catch (err) {
       setPermissionDenied(true)
       show(`No se pudo activar: ${errorMessage(err)}`)
+    } finally {
+      setRemindersBusy(false)
     }
   }
 
@@ -105,6 +116,7 @@ export default function Settings() {
   }
 
   async function toggleHealth(next: boolean) {
+    if (healthBusy) return
     if (!next) {
       patchHealth({ enabled: false })
       setHealthError(null)
@@ -400,12 +412,19 @@ export default function Settings() {
                   : 'Los recordatorios funcionan en la app Android'}
               </p>
             </div>
-            <Toggle
-              checked={reminders.enabled}
-              disabled={!native}
-              onChange={(v) => void toggleReminders(v)}
-              label="Activar recordatorios"
-            />
+            <div className="flex shrink-0 items-center gap-2">
+              {remindersBusy && (
+                <span aria-live="polite" className="text-sm font-bold text-white/45">
+                  …
+                </span>
+              )}
+              <Toggle
+                checked={reminders.enabled}
+                disabled={!native}
+                onChange={(v) => void toggleReminders(v)}
+                label="Activar recordatorios"
+              />
+            </div>
           </div>
 
           {!native && (
@@ -493,12 +512,19 @@ export default function Settings() {
                   : 'La sincronización funciona en la app Android'}
               </p>
             </div>
-            <Toggle
-              checked={health.enabled}
-              disabled={!nativeHealth || healthBusy}
-              onChange={(v) => void toggleHealth(v)}
-              label="Activar sincronización con Health Connect"
-            />
+            <div className="flex shrink-0 items-center gap-2">
+              {healthBusy && (
+                <span aria-live="polite" className="text-sm font-bold text-white/45">
+                  …
+                </span>
+              )}
+              <Toggle
+                checked={health.enabled}
+                disabled={!nativeHealth}
+                onChange={(v) => void toggleHealth(v)}
+                label="Activar sincronización con Health Connect"
+              />
+            </div>
           </div>
 
           <p className="mt-3 rounded-xl bg-white/5 p-3 text-xs leading-relaxed text-white/50">
