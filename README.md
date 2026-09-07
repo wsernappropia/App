@@ -91,11 +91,75 @@ Para mover el progreso entre dispositivos o hacer una copia de seguridad, usa **
 - **Exportar**: genera un texto (JSON) con todos los datos, que se puede copiar o guardar.
 - **Importar**: pega ese texto en un dispositivo distinto (o tras reinstalar) para recuperar el progreso.
 
+## Instalar como app Android (APK)
+
+Además de la PWA, Momentum se empaqueta como **app nativa de Android** con [Capacitor](https://capacitorjs.com/). Es la opción recomendada si no quieres depender de una URL: el APK lleva la app dentro y funciona sin conexión desde el primer arranque.
+
+### Descargar e instalar
+
+1. Desde el móvil, abre la página de **[Releases](../../releases/tag/android-latest)** del repositorio (pestaña **Releases → `android-latest`**, "Momentum Android (última build)").
+2. Descarga el archivo `momentum-0.1.x.apk` (donde `x` es el número de build).
+3. Chrome avisará de que este tipo de archivo puede ser dañino: acepta la descarga.
+4. Al abrir el APK, Android pedirá permiso para **instalar apps de orígenes desconocidos**. Concédeselo a Chrome (o al gestor de archivos que uses): *Ajustes → Apps → Chrome → Instalar apps desconocidas → Permitir*. Solo hay que hacerlo la primera vez.
+5. Pulsa **Instalar**. Momentum aparecerá en el cajón de aplicaciones con su icono propio.
+
+### Actualizar a una versión nueva
+
+Descarga el APK nuevo desde la misma Release e **instálalo encima** del anterior: no hace falta desinstalar y **los datos se conservan** (Android reconoce que es la misma app porque comparte firma y `applicationId`).
+
+El workflow `.github/workflows/android.yml` recompila el APK en cada push a `main` (o a la rama de trabajo) y actualiza siempre la misma Release `android-latest`, así que el enlace de descarga no cambia nunca.
+
+### Sobre la firma (importante)
+
+El keystore de release está **versionado dentro del repositorio** (`android/keystore/momentum.jks`, con las contraseñas en `android/keystore/keystore.properties`). Es una decisión deliberada:
+
+- Así **todas** las builds —las de GitHub Actions y las que compiles en tu portátil— quedan firmadas con la misma clave, que es justo lo que permite instalar una versión encima de otra sin desinstalar ni perder el progreso.
+- El precio: cualquiera con acceso al repositorio puede firmar un APK que Android considerará "el mismo Momentum". Es asumible en un **repositorio personal y privado**.
+
+Dos reglas que van con ese trade-off:
+
+- **Nunca subas esta app a Google Play con este keystore.** Play exige una clave de firma que solo controles tú; para eso habría que generar un keystore nuevo y guardarlo fuera del repositorio (por ejemplo, en *Secrets* de GitHub).
+- **Si el repositorio pasa a ser público, rota la clave**: borra `android/keystore/`, genera un keystore nuevo con `keytool` y desinstala/reinstala la app en el móvil (la firma nueva no es compatible con la instalada).
+
+### Compilar el APK en local
+
+Necesitas **JDK 21** y el SDK de Android (lo más cómodo es instalar [Android Studio](https://developer.android.com/studio), que trae ambos).
+
+```bash
+npm install
+npm run android:apk    # compila la web, sincroniza Capacitor y genera el APK de release
+```
+
+El APK sale en `android/app/build/outputs/apk/release/app-release.apk`.
+
+También puedes abrir la carpeta `android/` directamente en Android Studio (**File → Open**) y usar *Run* para instalarlo en un móvil conectado por USB, o *Build → Generate Signed Bundle / APK*.
+
+Otros comandos útiles:
+
+```bash
+npm run build:android  # solo compila la web y la copia al proyecto Android (cap sync)
+npm run icons          # regenera los iconos de la PWA y las fuentes de assets/
+```
+
+Los iconos adaptativos (`mipmap-*`) y el splash de Android se generan a partir de `assets/` con [`@capacitor/assets`](https://github.com/ionic-team/capacitor-assets), que no es dependencia del repo (usa `sharp`). Si necesitas regenerarlos:
+
+```bash
+npm run icons
+npx @capacitor/assets generate --android --iconBackgroundColor '#0f2b46' --splashBackgroundColor '#0b1a2b'
+```
+
+### ¿Y en iPhone?
+
+Capacitor también soporta iOS, pero generar un `.ipa` instalable exige un Mac con Xcode y una cuenta de desarrollador de Apple (y reinstalar cada 7 días con una cuenta gratuita). Queda fuera de alcance por ahora: en iPhone, la vía práctica sigue siendo **instalar la PWA desde Safari** como se explica más arriba.
+
 ## Estructura de carpetas
 
 ```
 .
 ├── public/                  Iconos y assets estáticos de la PWA
+├── assets/                  Imágenes fuente (icono y splash) para los assets de Android
+├── android/                 Proyecto nativo de Android generado por Capacitor
+├── scripts/make-icons.mjs   Rasterizador del icono (PWA + fuentes de assets/)
 ├── src/
 │   ├── components/          Componentes de interfaz reutilizables (botones, tarjetas, gráficas, etc.)
 │   ├── screens/             Pantallas de la app (Hoy, Caminata, Fuerza, Nutrición, Suplementos, Progreso, Revisión semanal, Ajustes)
@@ -104,5 +168,8 @@ Para mover el progreso entre dispositivos o hacer una copia de seguridad, usa **
 │   ├── main.tsx               Punto de entrada
 │   └── index.css               Estilos globales (Tailwind)
 ├── vite.config.ts            Configuración de Vite, PWA y base de despliegue
-└── .github/workflows/deploy.yml   Workflow de compilación y publicación en GitHub Pages
+├── capacitor.config.ts       Configuración de Capacitor (app nativa de Android)
+└── .github/workflows/
+    ├── deploy.yml            Compilación y publicación en GitHub Pages
+    └── android.yml           Compilación del APK y publicación en Releases
 ```

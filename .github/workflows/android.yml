@@ -1,0 +1,90 @@
+name: APK de Android
+
+on:
+  push:
+    branches:
+      - main
+      - claude/gamified-fitness-habits-app-atdttf
+  workflow_dispatch: {}
+
+# Necesario para publicar/actualizar la Release desde la que se descarga el APK.
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+      VERSION_NAME: 0.1.${{ github.run_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configurar Java (temurin 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ejecutar tests
+        run: npm test
+
+      # Compila la web (base `/`) y copia dist/ + plugins al proyecto Android.
+      - name: Compilar web y sincronizar Capacitor
+        run: npm run build:android
+
+      - name: Dar permisos de ejecución a gradlew
+        run: chmod +x android/gradlew
+
+      # Los runners de ubuntu-latest ya traen el SDK de Android en $ANDROID_HOME,
+      # incluidos platform 36 y build-tools (los que pide Capacitor 8). Si algún día
+      # la imagen del runner deja de traerlos y el build falla con
+      # "Failed to find target with hash string 'android-36'", descomenta este paso:
+      #
+      # - name: Instalar SDK de Android
+      #   uses: android-actions/setup-android@v3
+      #   with:
+      #     packages: platforms;android-36 build-tools;36.0.0
+
+      - name: Compilar APK de release (firmado)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Renombrar el APK
+        run: mv android/app/build/outputs/apk/release/app-release.apk "android/app/build/outputs/apk/release/momentum-${VERSION_NAME}.apk"
+
+      - name: Subir el APK como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: momentum-apk
+          path: android/app/build/outputs/apk/release/momentum-*.apk
+          if-no-files-found: error
+
+      # Release fija `android-latest`: siempre el mismo enlace para descargar
+      # la última build desde el móvil.
+      - name: Publicar la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Momentum Android (última build)
+          prerelease: true
+          body: |
+            APK de la última build de `${{ github.ref_name }}` (versión ${{ env.VERSION_NAME }}, build ${{ github.run_number }}).
+
+            Descarga `momentum-${{ env.VERSION_NAME }}.apk` desde el móvil e instálalo encima
+            de la versión anterior: se conservan todos los datos.
+          files: android/app/build/outputs/apk/release/momentum-*.apk

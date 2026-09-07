@@ -1,0 +1,34 @@
+import type { CapacitorConfig } from '@capacitor/cli'
+
+// Envoltorio nativo de la PWA. El contenido web se copia desde `dist/`
+// (el mismo build de Vite que se publica en GitHub Pages, pero con base `/`).
+const config: CapacitorConfig = {
+  appId: 'com.momentum.habits',
+  appName: 'Momentum',
+  webDir: 'dist',
+  android: {
+    // La app es 100 % local: nada de cargar http:// dentro del WebView https.
+    allowMixedContent: false,
+  },
+  backgroundColor: '#0b1a2b',
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 800,
+      launchAutoHide: true,
+      backgroundColor: '#0b1a2b',
+      androidSplashResourceName: 'splash',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+      splashFullScreen: false,
+      splashImmersive: false,
+    },
+    StatusBar: {
+      // Navy del header: la barra de estado se funde con él, sin taparlo.
+      backgroundColor: '#0f2b46',
+      style: 'DARK',
+      overlaysWebView: false,
+    },
+  },
+}
+
+export default config
