@@ -13,6 +13,7 @@ La filosofía es simple: **"5 minutos mantienen el ritmo"** — no hace falta un
 - **Suplementos**: checklist diario de suplementos.
 - **Progreso**: gráficas y estadísticas de evolución (XP, adherencia, tendencias).
 - **Recordatorios** (sólo app Android): avisos locales durante el día para no olvidar la misión, la proteína, el check-in y la revisión semanal. Ver [Recordatorios](#recordatorios).
+- **Samsung Health / Health Connect** (sólo app Android): trae solas las caminatas del reloj, los pasos del día y el peso. Ver [Samsung Health / Health Connect](#samsung-health--health-connect).
 - **Revisión semanal**: al cierre de cada semana, la app aplica la **regla 7.1** para decidir cómo ajustar el plan de la próxima semana según adherencia, RPE y dolor:
 
   | Adherencia | RPE / dolor | Decisión |
@@ -50,6 +51,58 @@ Hay cuatro recordatorios, cada uno con su hora:
 **Pueden llegar con unos minutos de desfase.** Momentum usa alarmas *inexactas* a propósito: las exactas exigen un permiso especial en Android 12+ que obligaría a mandarte a una pantalla de ajustes del sistema, y para un recordatorio de hábitos no compensa. A cambio, Android agrupa los avisos para ahorrar batería, así que uno de las 08:00 puede sonar a las 08:05. El ahorro de batería agresivo del fabricante (Xiaomi, Huawei, Samsung…) puede retrasarlos más: si te pasa, quita a Momentum de la optimización de batería.
 
 **Sólo existen en la app Android.** En la web (PWA o navegador) la sección aparece con los controles desactivados y una nota: no hay recordatorios ahí.
+
+## Samsung Health / Health Connect
+
+*(Sólo en la app Android.)* Momentum puede **leer** tu actividad de **Health Connect**, que es donde Samsung Health (y con él el Galaxy Watch) deja sus datos. Así no hace falta apuntar a mano una caminata que el reloj ya registró.
+
+### Qué se sincroniza
+
+| Dato | Para qué |
+|---|---|
+| **Pasos del día** (y de los últimos 7 días) | Tarjeta "Pasos" en Hoy, media semanal en Progreso y, opcionalmente, la misión de pasos |
+| **Caminatas y senderismo** de 5 min o más | Se registran como caminatas normales, con su XP de siempre (2 XP/min + bonus diario) |
+| **Distancia** de esas sesiones | Estimar el ritmo: < 4 km/h suave, < 5,5 km/h moderado, más rápido |
+| **Pulso** durante esas sesiones | Pulsaciones medias de la sesión en Progreso |
+| **Último peso** medido en los últimos 7 días | Se guarda en el día en que se midió (gráfico de peso en Progreso) |
+
+Momentum **sólo lee**: nunca escribe nada en Health Connect y no toca sueño, nutrición ni ningún otro tipo de dato. Todo se queda en el teléfono, como el resto de la app.
+
+### Pasos en el teléfono (una sola vez)
+
+1. **Samsung Health → Ajustes → Health Connect** y activa el envío de **Pasos**, **Ejercicio**, **Frecuencia cardíaca** y **Peso** hacia Health Connect. (En **Android 14 o superior**, Health Connect ya viene en el sistema: *Ajustes de Android → Salud y bienestar → Health Connect*. En Android 13 o anterior es una app aparte que se instala desde Play Store.)
+2. Instala el APK nuevo de Momentum.
+3. En Momentum: **Ajustes → Samsung Health / Health Connect → "Sincronizar actividad"**. Al encenderlo, Health Connect muestra su propio diálogo con los cinco permisos que pide Momentum (pasos, ejercicio, distancia, pulso, peso). Concédelos.
+4. Nada que hacer en el reloj: sigue sincronizando con Samsung Health como siempre.
+
+Si el teléfono no tiene Health Connect, el interruptor se queda apagado y la app avisa ("Health Connect no está disponible en este teléfono"). Si deniegas los permisos, también se queda apagado y te dice dónde concederlos después.
+
+### Cuándo sincroniza
+
+Al abrir la app y cada vez que vuelve a primer plano, con un margen de **5 minutos** entre sincronizaciones para no machacar la batería. También hay un botón **"Sincronizar ahora"** en Ajustes, y debajo se ve cuándo fue la última ("hace 4 min"). Si algo falla (permiso revocado, Health Connect apagado), la sincronización se rinde en silencio: **la app nunca se rompe por esto** y el modo manual sigue igual.
+
+### Qué pasa con las caminatas que ya registraste a mano
+
+No se duplican. Al insertar una sesión de Health Connect, Momentum descarta:
+
+- las de **menos de 5 minutos** (el mismo umbral del modo manual),
+- las que **ya están** (se guarda el id del registro de Health Connect en la sesión),
+- las que **solapan un 50 % o más** con una caminata que registraste tú a mano — se entiende que son la misma salida. El solape se mide sobre la más corta de las dos, así que una caminata manual de 10 min dentro de una sesión del reloj de 30 min cuenta como la misma.
+
+Las que sí entran se marcan con la etiqueta **"Desde Samsung Health"** en Progreso, y en Hoy la tarjeta de misión cumplida indica cuántos minutos vinieron del reloj.
+
+### Misión de pasos (opcional)
+
+Está **apagada por defecto**: activarla es lo único que cambia las reglas del juego. Con **Ajustes → "Misión de pasos"** encendida, llegar a la meta diaria (entre 5.000 y 15.000 pasos, 8.000 por defecto) cuenta como **movimiento del Día Mínimo** y **mantiene la racha**, aunque no hayas registrado ninguna caminata. Da además un bonus de **15 XP** una sola vez al día. El resto de tarifas de XP no cambia.
+
+Con la misión apagada, los pasos son sólo información: se ven en Hoy y en Progreso, y no afectan a rachas ni a XP.
+
+### Límites y letra pequeña
+
+- **30 días de historial.** Health Connect sólo deja leer los últimos 30 días sin un permiso extra (`READ_HEALTH_DATA_HISTORY`) que Momentum **no** pide. En la práctica da igual: sincroniza los **últimos 7 días** en cada arranque.
+- **El reloj necesita el móvil.** Samsung Health sube al teléfono por Bluetooth; si el reloj lleva días sin emparejarse, esos datos aún no están en Health Connect.
+- **Android 8 (API 26) como mínimo** — es lo que exige el SDK de Health Connect, así que la app subió su `minSdkVersion` de 24 a 26. Para *usar* Health Connect de verdad hace falta Android 9 o superior.
+- **No hace falta ninguna aprobación de Google.** El formulario de declaración de datos de salud es un requisito de la **Play Console**, y Momentum se instala por APK desde GitHub Releases: nunca pasa por ahí. Basta con declarar los permisos en el manifest y que tú los concedas en el diálogo del sistema, igual que la cámara o la ubicación.
 
 ## Stack técnico
 
@@ -178,7 +231,8 @@ Capacitor también soporta iOS, pero generar un `.ipa` instalable exige un Mac c
 
 ```
 .
-├── public/                  Iconos y assets estáticos de la PWA
+├── public/                  Iconos, assets estáticos de la PWA y privacypolicy.html
+│                            (la pantalla que Health Connect abre al pedir permisos)
 ├── assets/                  Imágenes fuente (icono y splash) para los assets de Android
 ├── android/                 Proyecto nativo de Android generado por Capacitor
 ├── scripts/make-icons.mjs   Rasterizador del icono (PWA + fuentes de assets/)

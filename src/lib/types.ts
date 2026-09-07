@@ -14,11 +14,20 @@ export type Screen =
 
 export type Pace = 'suave' | 'moderado' | 'rapido'
 
+/** Origen de una caminata. Sin campo (datos antiguos) = manual. */
+export type WalkSource = 'manual' | 'health'
+
 export interface WalkSession {
   id: string
   startedAt: number
   minutes: number
   pace: Pace
+  /** Añadido: 'health' si vino de Health Connect. Opcional por compatibilidad. */
+  source?: WalkSource
+  /** Añadido: id del registro en Health Connect, para no duplicarlo. */
+  externalId?: string
+  /** Añadido: pulsaciones medias de la sesión, si Health Connect las tiene. */
+  avgHr?: number
 }
 
 export interface StrengthSession {
@@ -67,6 +76,8 @@ export interface DayLog {
   checkin?: Checkin
   weight?: number // kg (opcional)
   waist?: number // cm (opcional)
+  /** Añadido: pasos del día según Health Connect (opcional). */
+  steps?: number
   xp: number // XP ganado ese día (suma)
   /** Añadido: registro de bonos ya concedidos, para que las acciones sean idempotentes. */
   awards?: Partial<Record<XpAwardKey, boolean>>
@@ -92,6 +103,16 @@ export interface ReminderSettings {
   review: ReminderConfig
 }
 
+/** Sincronización con Health Connect (Samsung Health). */
+export interface HealthSettings {
+  enabled: boolean
+  lastSyncAt?: number
+  /** Meta diaria de pasos (5000-15000). */
+  stepsGoal: number
+  /** Si está activa, llegar a la meta cuenta como movimiento del Día Mínimo. */
+  stepsMissionEnabled: boolean
+}
+
 export interface Settings {
   name: string
   proteinGoal: number // default 110
@@ -104,6 +125,8 @@ export interface Settings {
   onboarded: boolean
   /** Añadido: recordatorios locales. Los estados antiguos se rellenan con el default. */
   reminders: ReminderSettings
+  /** Añadido: Health Connect. Los estados antiguos se rellenan con el default. */
+  health: HealthSettings
 }
 
 export interface WeeklyPlan {
@@ -198,6 +221,10 @@ export interface WeekSummary {
   maxPain: number
   proteinAvg: number
   proteinGreenDays: number
+  /** Media de pasos por día con datos (0 si no hay). */
+  stepsAvg: number
+  /** Días de la semana con pasos sincronizados. */
+  stepsDays: number
   supplementsRate: number
   minimumDaysComplete: number
   xp: number

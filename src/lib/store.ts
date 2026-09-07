@@ -6,6 +6,14 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import type { StateStorage } from 'zustand/middleware'
 import { addDays, listDays, parseISODate, todayKey, weekStart } from './dates'
 import { XP, walkXp } from './gamification'
+import {
+  DEFAULT_HEALTH,
+  mergeHealthWalks,
+  normalizeHealth,
+  paceFromWalk,
+  stepsMissionDone,
+} from './health'
+import type { HealthSnapshot } from './health'
 import { newId } from './ids'
 import { DEFAULT_REMINDERS, normalizeReminders } from './reminders'
 import { applyDecision, basePlan, decide } from './progression'
@@ -33,6 +41,7 @@ import type {
   Settings,
   StrengthSession,
   SupplementId,
+  WalkSource,
   WeeklyPlan,
   WeeklyReview,
 } from './types'
@@ -51,6 +60,7 @@ export const DEFAULT_SETTINGS: Settings = {
   waterGoal: 8,
   onboarded: false,
   reminders: DEFAULT_REMINDERS,
+  health: DEFAULT_HEALTH,
 }
 
 export const DEFAULT_GAME: GameState = { xp: 0, shields: 0, badges: [] }
@@ -62,6 +72,7 @@ export function initialData(now: Date = new Date()): MomentumData {
       enabledSupplements: [...DEFAULT_SETTINGS.enabledSupplements],
       strengthDays: [...DEFAULT_SETTINGS.strengthDays],
       reminders: normalizeReminders(DEFAULT_SETTINGS.reminders),
+      health: normalizeHealth(DEFAULT_SETTINGS.health),
     },
     plan: basePlan(todayKey(now)),
     days: {},
@@ -72,8 +83,18 @@ export function initialData(now: Date = new Date()): MomentumData {
 
 export interface MomentumActions {
   updateSettings: (patch: Partial<Settings>) => void
-  /** Devuelve el XP obtenido. */
-  logWalk: (minutes: number, pace: Pace, startedAt?: number) => number
+  /** Devuelve el XP obtenido. `meta` permite registrar en otro día y marcar el origen. */
+  logWalk: (
+    minutes: number,
+    pace: Pace,
+    startedAt?: number,
+    meta?: { date?: ISODate; source?: WalkSource; externalId?: string; avgHr?: number },
+  ) => number
+  /**
+   * Aplica una lectura de Health Connect a un día: inserta las caminatas nuevas
+   * (dedupe incluido), fija los pasos y guarda el peso. Devuelve el XP neto.
+   */
+  applyHealthSnapshot: (snapshot: HealthSnapshot, date?: ISODate) => number
   logStrength: (session: Omit<StrengthSession, 'id' | 'startedAt'>) => number
   addProtein: (grams: number, label: string) => number
   removeProtein: (id: string) => void
@@ -178,6 +199,8 @@ function applyDerivedAwards(tx: Tx, settings: Settings): void {
   const grams = proteinTotal(tx.day)
   syncAward(tx, 'protein-min', grams >= settings.proteinMin, XP.proteinMin)
   syncAward(tx, 'protein-goal', grams >= settings.proteinGoal, XP.proteinGoal)
+  // Misión de pasos: bonus único por llegar a la meta (idempotente por día).
+  syncAward(tx, 'steps-goal', stepsMissionDone(tx.day, settings), XP.stepsGoal)
   const min = minimumDayFor(tx.day, settings)
   syncAward(tx, 'minimum-day', min.count === 3, XP.minimumDay)
 }
@@ -247,6 +270,7 @@ function sanitizeDay(raw: unknown, date: ISODate): DayLog {
     checkin: d.checkin,
     weight: typeof d.weight === 'number' ? d.weight : undefined,
     waist: typeof d.waist === 'number' ? d.waist : undefined,
+    steps: typeof d.steps === 'number' ? d.steps : undefined,
     xp: typeof d.xp === 'number' ? d.xp : 0,
     awards: typeof d.awards === 'object' && d.awards ? d.awards : {},
   }
@@ -282,6 +306,7 @@ export function normalizeData(raw: unknown, now: Date = new Date()): MomentumDat
   // Los estados persistidos antes de los recordatorios no traen este campo:
   // se rellena con el default (y se completa lo que falte dentro).
   settings.reminders = normalizeReminders(settings.reminders)
+  settings.health = normalizeHealth(settings.health)
   const plan: WeeklyPlan = { ...base.plan, ...(raw.plan as Partial<WeeklyPlan>) }
   const days: Record<ISODate, DayLog> = {}
   for (const [key, value] of Object.entries(raw.days as Record<string, unknown>)) {
@@ -370,13 +395,22 @@ export function createStore(options: CreateStoreOptions = {}) {
             set({ settings, game: finalizeGame(data, now(), todayKey(now())) })
           },
 
-          logWalk: (minutes, pace, startedAt) => {
+          logWalk: (minutes, pace, startedAt, meta) => {
             const mins = Math.max(0, Math.round(minutes))
-            const date = todayKey(now())
+            const date = meta?.date ?? todayKey(now())
             return commit(date, (tx) => {
               tx.day.walks = [
                 ...tx.day.walks,
-                { id: newId('w'), startedAt: startedAt ?? tx.nowMs, minutes: mins, pace },
+                {
+                  id: newId('w'),
+                  startedAt: startedAt ?? tx.nowMs,
+                  minutes: mins,
+                  pace,
+                  // Sin `source` = manual (así siguen valiendo los datos antiguos).
+                  ...(meta?.source ? { source: meta.source } : {}),
+                  ...(meta?.externalId ? { externalId: meta.externalId } : {}),
+                  ...(typeof meta?.avgHr === 'number' ? { avgHr: meta.avgHr } : {}),
+                },
               ]
               grant(tx, walkXp(mins))
               // bonus de movimiento: una sola vez al día
@@ -440,6 +474,43 @@ export function createStore(options: CreateStoreOptions = {}) {
               if (metrics.weight !== undefined) tx.day.weight = metrics.weight
               if (metrics.waist !== undefined) tx.day.waist = metrics.waist
             })
+          },
+
+          applyHealthSnapshot: (snapshot, date) => {
+            const key = date ?? todayKey(now())
+            let xp = 0
+
+            // 1. Pasos del día (los fija aunque no haya caminatas nuevas).
+            const steps = Math.max(0, Math.round(snapshot.steps || 0))
+            if (steps > 0 && getDay(get(), key).steps !== steps) {
+              xp += commit(key, (tx) => {
+                tx.day.steps = steps
+              })
+            }
+
+            // 2. Caminatas nuevas -> mismo `logWalk` que el timer manual, así que
+            //    las reglas de XP (2 XP/min + bonus diario) no se duplican.
+            const pending = mergeHealthWalks(getDay(get(), key), snapshot.walks)
+            for (const walk of pending) {
+              xp += get().logWalk(walk.minutes, paceFromWalk(walk), walk.startedAt, {
+                date: key,
+                source: 'health',
+                externalId: walk.externalId,
+                avgHr: walk.avgHr,
+              })
+            }
+
+            // 3. Peso: se guarda en el día en que se midió.
+            const weight = snapshot.weightKg
+            if (weight && Number.isFinite(weight.kg) && weight.kg > 0) {
+              const weightDate = todayKey(new Date(weight.at))
+              const kg = Math.round(weight.kg * 10) / 10
+              if (getDay(get(), weightDate).weight !== kg) {
+                get().setBodyMetrics({ weight: kg }, weightDate)
+              }
+            }
+
+            return xp
           },
 
           completeWeeklyReview: (input) => {

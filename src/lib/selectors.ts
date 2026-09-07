@@ -8,6 +8,7 @@ import {
   xpForLevel,
   xpThreshold,
 } from './gamification'
+import { stepsMissionDone } from './health'
 import { proteinZone, remainingProtein } from './nutrition'
 import * as copy from './copy'
 import type {
@@ -57,9 +58,15 @@ export function proteinTotal(day: DayLog): number {
   return Math.round(day.protein.reduce((acc, p) => acc + (p.grams || 0), 0) * 10) / 10
 }
 
-/** Movimiento hecho: caminata total >= 5 min o sesión de fuerza registrada. */
-export function movementDone(day: DayLog): boolean {
-  return walkMinutes(day) >= MIN_WALK_MINUTES || !!day.strength
+/**
+ * Movimiento hecho: caminata total >= 5 min, sesión de fuerza registrada o —si la
+ * misión de pasos está activa en los ajustes— haber llegado a la meta de pasos.
+ * `settings` es opcional para no romper a quien sólo tenga el DayLog a mano.
+ */
+export function movementDone(day: DayLog, settings?: Settings): boolean {
+  return (
+    walkMinutes(day) >= MIN_WALK_MINUTES || !!day.strength || stepsMissionDone(day, settings)
+  )
 }
 
 export function isRestDay(settings: Settings, date: ISODate): boolean {
@@ -82,12 +89,12 @@ export function missionDone(state: MomentumData, date: ISODate): boolean {
   if (mission === 'rest') return true
   const day = getDay(state, date)
   if (mission === 'strength') return !!day.strength
-  return movementDone(day)
+  return movementDone(day, state.settings)
 }
 
 /** Día Mínimo a partir de un DayLog + ajustes (sin tocar el estado). */
 export function minimumDayFor(day: DayLog, settings: Settings): MinimumDay {
-  const movement = movementDone(day)
+  const movement = movementDone(day, settings)
   const protein = proteinTotal(day) >= settings.proteinMin
   const checkin = !!day.checkin
   const count = (Number(movement) + Number(protein) + Number(checkin)) as 0 | 1 | 2 | 3
@@ -151,7 +158,7 @@ export function streak(state: MomentumData, now: Date = new Date()): StreakInfo 
   for (const date of listDays(first, today)) {
     const day = getDay(state, date)
     const rest = isRestDay(state.settings, date)
-    if (movementDone(day)) {
+    if (movementDone(day, state.settings)) {
       current += 1
       if (current > best) best = current
       if (current % SHIELD_EVERY === 0) shields = Math.min(MAX_SHIELDS, shields + 1)
@@ -189,13 +196,17 @@ export function weekSummary(state: MomentumData, weekStartIso: ISODate): WeekSum
   let proteinSum = 0
   let proteinDays = 0
   let proteinGreenDays = 0
+  let stepsSum = 0
+  let stepsDays = 0
   let suppTaken = 0
   let minimumDaysComplete = 0
   let xp = 0
 
   for (const date of days) {
     const day = getDay(state, date)
-    const recorded = !!state.days[date]
+    // "Registrado" = el día tiene algo hecho. Un día que sólo trae pasos
+    // sincronizados de Health Connect no diluye la media de proteína.
+    const recorded = hasActivity(day)
     if (missionFor(state.settings, date) !== 'rest') {
       plannedDays += 1
       if (missionDone(state, date)) doneDays += 1
@@ -214,6 +225,10 @@ export function weekSummary(state: MomentumData, weekStartIso: ISODate): WeekSum
       proteinDays += 1
     }
     if (grams >= state.settings.proteinGoal) proteinGreenDays += 1
+    if (typeof day.steps === 'number' && day.steps > 0) {
+      stepsSum += day.steps
+      stepsDays += 1
+    }
     for (const id of enabled) if (day.supplements[id]) suppTaken += 1
     if (minimumDayFor(day, state.settings).count === 3) minimumDaysComplete += 1
     xp += day.xp
@@ -233,6 +248,8 @@ export function weekSummary(state: MomentumData, weekStartIso: ISODate): WeekSum
     // Media sobre los días con registro (no diluye semanas a medias).
     proteinAvg: proteinDays > 0 ? Math.round((proteinSum / proteinDays) * 10) / 10 : 0,
     proteinGreenDays,
+    stepsAvg: stepsDays > 0 ? Math.round(stepsSum / stepsDays) : 0,
+    stepsDays,
     supplementsRate: suppSlots > 0 ? suppTaken / suppSlots : 0,
     minimumDaysComplete,
     xp,

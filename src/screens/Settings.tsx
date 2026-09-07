@@ -6,7 +6,7 @@ import { Stepper } from '../components/Stepper'
 import { Sheet } from '../components/Sheet'
 import { Toggle } from '../components/Toggle'
 import { useToast } from '../components/Toast'
-import { IconBell, IconCheck, IconPill } from '../components/icons'
+import { IconBell, IconCheck, IconPill, IconWalk } from '../components/icons'
 import { useStore } from '../lib/store'
 import { useNav } from '../lib/nav'
 import { ALL_SUPPLEMENTS } from '../lib/supplements'
@@ -19,6 +19,19 @@ import {
   requestPermission,
   sendTestNotification,
 } from '../lib/notifications'
+import {
+  HEALTH_SYNC_DAYS,
+  STEPS_GOAL_MAX,
+  STEPS_GOAL_MIN,
+  STEPS_GOAL_STEP,
+  formatSyncAge,
+} from '../lib/health'
+import {
+  isAvailable as isHealthAvailable,
+  isNativeHealth,
+  requestPermissions as requestHealthPermissions,
+  syncHealth,
+} from '../lib/healthConnect'
 import type { ReminderConfig, ReminderId, SupplementId } from '../lib/types'
 
 declare const __APP_VERSION__: string | undefined
@@ -35,6 +48,10 @@ export default function Settings() {
   const [permissionDenied, setPermissionDenied] = useState(false)
   const native = isNative()
   const reminders = settings.reminders
+  const health = settings.health
+  const nativeHealth = isNativeHealth()
+  const [healthError, setHealthError] = useState<string | null>(null)
+  const [healthBusy, setHealthBusy] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [exportText, setExportText] = useState<string | null>(null)
@@ -71,6 +88,47 @@ export default function Settings() {
     }
     setPermissionDenied(false)
     state.updateSettings({ reminders: { ...reminders, enabled: true } })
+  }
+
+  function patchHealth(patch: Partial<typeof health>) {
+    state.updateSettings({ health: { ...health, ...patch } })
+  }
+
+  async function toggleHealth(next: boolean) {
+    if (!next) {
+      patchHealth({ enabled: false })
+      setHealthError(null)
+      return
+    }
+    setHealthBusy(true)
+    try {
+      if (!(await isHealthAvailable())) {
+        setHealthError('Health Connect no está disponible en este teléfono.')
+        return
+      }
+      if (!(await requestHealthPermissions())) {
+        setHealthError(
+          'No diste permiso a Momentum para leer tus datos. Puedes concederlo en Ajustes de Android → Salud y bienestar → Health Connect.',
+        )
+        return
+      }
+      setHealthError(null)
+      patchHealth({ enabled: true })
+      // Primera sincronización inmediata, sin esperar al throttle.
+      void syncHealth(true)
+    } finally {
+      setHealthBusy(false)
+    }
+  }
+
+  async function handleSyncNow() {
+    setHealthBusy(true)
+    try {
+      const ok = await syncHealth(true)
+      show(ok ? 'Datos actualizados' : 'No se pudo sincronizar')
+    } finally {
+      setHealthBusy(false)
+    }
   }
 
   async function handleTestNotification() {
@@ -391,6 +449,95 @@ export default function Settings() {
               </p>
             </div>
           )}
+        </Card>
+
+        <Card>
+          <div className="mb-3 flex items-center gap-2">
+            <IconWalk size={18} className="text-white/60" />
+            <p className="text-sm font-extrabold text-white">Samsung Health / Health Connect</p>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-white">Sincronizar actividad</p>
+              <p className="text-xs text-white/45">
+                {nativeHealth
+                  ? 'Trae tus caminatas, pasos y peso desde Health Connect'
+                  : 'La sincronización funciona en la app Android'}
+              </p>
+            </div>
+            <Toggle
+              checked={health.enabled}
+              disabled={!nativeHealth || healthBusy}
+              onChange={(v) => void toggleHealth(v)}
+              label="Activar sincronización con Health Connect"
+            />
+          </div>
+
+          <p className="mt-3 rounded-xl bg-white/5 p-3 text-xs leading-relaxed text-white/50">
+            Momentum lee de los últimos {HEALTH_SYNC_DAYS} días: <b>pasos</b> del día,{' '}
+            <b>caminatas y senderismo</b> (5 min o más), <b>pulso</b> de esas sesiones y tu{' '}
+            <b>último peso</b>. Nada sale de tu teléfono y Momentum nunca escribe en Health
+            Connect. Las caminatas que ya registraste a mano no se duplican.
+          </p>
+
+          {!nativeHealth && (
+            <p className="mt-3 rounded-xl bg-white/5 p-3 text-xs leading-relaxed text-white/50">
+              Esta es la versión web. Instala el APK de Momentum en Android para sincronizar con
+              Samsung Health: aquí los controles están desactivados.
+            </p>
+          )}
+
+          {nativeHealth && healthError && (
+            <p className="mt-3 rounded-xl bg-red/15 p-3 text-xs leading-relaxed text-red">
+              {healthError}
+            </p>
+          )}
+
+          {nativeHealth && health.enabled && (
+            <div className="mt-4 border-t border-white/5 pt-4">
+              <p className="mb-2 text-xs text-white/45">
+                Última sincronización: {formatSyncAge(health.lastSyncAt)}
+              </p>
+              <Button
+                variant="secondary"
+                block
+                disabled={healthBusy}
+                onClick={() => void handleSyncNow()}
+              >
+                Sincronizar ahora
+              </Button>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-col gap-4 border-t border-white/5 pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p
+                  className={`text-sm font-bold ${health.enabled ? 'text-white' : 'text-white/35'}`}
+                >
+                  Misión de pasos
+                </p>
+                <p className="text-xs leading-snug text-white/40">
+                  Llegar a la meta cuenta como movimiento del Día Mínimo y mantiene la racha.
+                </p>
+              </div>
+              <Toggle
+                checked={health.stepsMissionEnabled}
+                disabled={!nativeHealth || !health.enabled}
+                onChange={(v) => patchHealth({ stepsMissionEnabled: v })}
+                label="Activar misión de pasos"
+              />
+            </div>
+            <Stepper
+              label="Meta de pasos"
+              value={health.stepsGoal}
+              min={STEPS_GOAL_MIN}
+              max={STEPS_GOAL_MAX}
+              step={STEPS_GOAL_STEP}
+              onChange={(v) => patchHealth({ stepsGoal: v })}
+            />
+          </div>
         </Card>
 
         <Card>

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { STORAGE_KEY, STORE_VERSION, createStore, normalizeData } from './store'
 import { DEFAULT_REMINDERS } from './reminders'
-import { makeTestStore } from './testing'
+import { at, makeTestStore } from './testing'
 import { XP } from './gamification'
-import { proteinTotal, streak } from './selectors'
+import { minimumDay, missionDone, proteinTotal, streak } from './selectors'
+import { DEFAULT_HEALTH } from './health'
+import type { HealthSnapshot } from './health'
 
 // Los tests corren en node (sin localStorage): `makeTestStore` inyecta un reloj fijo
 // y un StateStorage en memoria, así que `persist` funciona igual que en el navegador.
@@ -312,5 +314,116 @@ describe('persistencia', () => {
     const b = createStore({ now: () => new Date(2026, 8, 8, 12), storage })
     expect(b.getState().game.xp).toBe(30)
     expect(b.getState().days['2026-09-08'].walks).toHaveLength(1)
+  })
+})
+
+describe('applyHealthSnapshot', () => {
+  const DAY = '2026-09-08'
+  /** 8/9/2026 a las `hour`:`minute`, en milisegundos. */
+  const ms = (hour: number, minute = 0) => at(DAY, hour, minute).getTime()
+
+  function snapshot(): HealthSnapshot {
+    return {
+      steps: 9000,
+      walks: [
+        // Nueva: 12:00-12:20
+        { externalId: 'hc-a', startedAt: ms(12), minutes: 20, distanceKm: 1.6 },
+        // Nueva: 14:00-14:15
+        { externalId: 'hc-b', startedAt: ms(14), minutes: 15 },
+        // Duplicada: solapa con la caminata manual de 10:00-10:20
+        { externalId: 'hc-c', startedAt: ms(10, 5), minutes: 20 },
+        // Demasiado corta
+        { externalId: 'hc-d', startedAt: ms(16), minutes: 3 },
+      ],
+      weightKg: { at: ms(8), kg: 77.43 },
+    }
+  }
+
+  it('inserta sólo las caminatas nuevas, fija los pasos y guarda el peso', () => {
+    const store = makeTestStore(DAY)
+    // Caminata manual previa: 20 min -> 40 XP + 10 de bonus diario
+    store.getState().logWalk(20, 'moderado', ms(10))
+    expect(store.getState().game.xp).toBe(50)
+
+    const xp = store.getState().applyHealthSnapshot(snapshot())
+    // 20 min + 15 min a 2 XP/min; el bonus del día ya estaba concedido.
+    expect(xp).toBe(35 * XP.walkPerMinute)
+
+    const day = store.getState().days[DAY]
+    expect(day.walks).toHaveLength(3)
+    expect(day.walks.filter((w) => w.source === 'health').map((w) => w.externalId)).toEqual([
+      'hc-a',
+      'hc-b',
+    ])
+    // 1.6 km en 20 min = 4.8 km/h -> moderado
+    expect(day.walks[1]).toMatchObject({ minutes: 20, pace: 'moderado', startedAt: ms(12) })
+    // Sin distancia -> moderado por defecto
+    expect(day.walks[2].pace).toBe('moderado')
+    expect(day.steps).toBe(9000)
+    expect(day.weight).toBe(77.4)
+    expect(store.getState().game.xp).toBe(50 + 70)
+  })
+
+  it('es idempotente: repetir la misma lectura no suma nada', () => {
+    const store = makeTestStore(DAY)
+    store.getState().logWalk(20, 'moderado', ms(10))
+    store.getState().applyHealthSnapshot(snapshot())
+    const xpBefore = store.getState().game.xp
+
+    expect(store.getState().applyHealthSnapshot(snapshot())).toBe(0)
+    expect(store.getState().game.xp).toBe(xpBefore)
+    expect(store.getState().days[DAY].walks).toHaveLength(3)
+  })
+
+  it('escribe en el día indicado, no siempre en hoy', () => {
+    const store = makeTestStore(DAY)
+    store.getState().applyHealthSnapshot(
+      { steps: 4200, walks: [{ externalId: 'x', startedAt: at('2026-09-06', 9).getTime(), minutes: 12 }] },
+      '2026-09-06',
+    )
+    expect(store.getState().days['2026-09-06'].steps).toBe(4200)
+    expect(store.getState().days['2026-09-06'].walks).toHaveLength(1)
+    expect(store.getState().days[DAY]).toBeUndefined()
+  })
+})
+
+describe('misión de pasos', () => {
+  const DAY = '2026-09-08' // martes: día de caminata
+
+  function storeWithMission(stepsGoal = 8000) {
+    const store = makeTestStore(DAY)
+    store.getState().updateSettings({
+      health: { ...DEFAULT_HEALTH, enabled: true, stepsMissionEnabled: true, stepsGoal },
+    })
+    return store
+  }
+
+  it('llegar a la meta da el bonus una vez y cuenta como movimiento', () => {
+    const store = storeWithMission()
+    const xp = store.getState().applyHealthSnapshot({ steps: 8200, walks: [] })
+    expect(xp).toBe(XP.stepsGoal)
+    expect(minimumDay(store.getState(), DAY).movement).toBe(true)
+    expect(missionDone(store.getState(), DAY)).toBe(true)
+    expect(streak(store.getState(), at(DAY)).current).toBe(1)
+
+    // Una segunda lectura con más pasos no vuelve a pagar el bonus.
+    expect(store.getState().applyHealthSnapshot({ steps: 9500, walks: [] })).toBe(0)
+    expect(store.getState().game.xp).toBe(XP.stepsGoal)
+    expect(store.getState().days[DAY].steps).toBe(9500)
+  })
+
+  it('por debajo de la meta no hay bonus ni movimiento', () => {
+    const store = storeWithMission()
+    expect(store.getState().applyHealthSnapshot({ steps: 5000, walks: [] })).toBe(0)
+    expect(minimumDay(store.getState(), DAY).movement).toBe(false)
+    expect(store.getState().game.xp).toBe(0)
+  })
+
+  it('con la misión desactivada los pasos son sólo informativos', () => {
+    const store = makeTestStore(DAY)
+    store.getState().updateSettings({ health: { ...DEFAULT_HEALTH, enabled: true } })
+    expect(store.getState().applyHealthSnapshot({ steps: 12000, walks: [] })).toBe(0)
+    expect(store.getState().days[DAY].steps).toBe(12000)
+    expect(minimumDay(store.getState(), DAY).movement).toBe(false)
   })
 })

@@ -12,9 +12,10 @@ import { IconBack, IconChart } from '../components/icons'
 import { useStore } from '../lib/store'
 import { useNav } from '../lib/nav'
 import { addDays, dayAndMonth, formatWeekRange, weekStart, weekdayShort } from '../lib/dates'
-import { missionDone, missionFor, pendingReview, weekSummary } from '../lib/selectors'
+import { HEALTH_SOURCE_LABEL, isHealthWalk } from '../lib/health'
+import { getDay, missionDone, missionFor, pendingReview, weekSummary } from '../lib/selectors'
 import { BADGES, BADGE_ORDER } from '../lib/gamification'
-import type { Decision, ISODate } from '../lib/types'
+import type { Decision, ISODate, WalkSession } from '../lib/types'
 import { useToday } from './_shared'
 
 const WEEKS_BACK = 8
@@ -85,6 +86,15 @@ export default function Progress() {
       .slice(-12)
       .map((d) => ({ x: dayAndMonth(d), y: state.days[d].waist as number }))
   }, [state.days])
+
+  // Caminatas de la semana seleccionada, de la más reciente a la más antigua.
+  const weekWalks = useMemo(() => {
+    const out: { date: ISODate; walk: WalkSession }[] = []
+    for (const date of dayDates) {
+      for (const walk of getDay(state, date).walks) out.push({ date, walk })
+    }
+    return out.sort((a, b) => b.walk.startedAt - a.walk.startedAt).slice(0, 10)
+  }, [state, dayDates])
 
   const pending = pendingReview(state, now)
 
@@ -157,6 +167,15 @@ export default function Progress() {
           <Card>
             <Stat label="Suplementos" value={pct(summary.supplementsRate)} hint="tomas de la semana" />
           </Card>
+          {summary.stepsDays > 0 && (
+            <Card className="col-span-2">
+              <Stat
+                label="Pasos (media/día)"
+                value={summary.stepsAvg.toLocaleString('es-ES')}
+                hint={`${summary.stepsDays} ${summary.stepsDays === 1 ? 'día' : 'días'} con datos de Samsung Health`}
+              />
+            </Card>
+          )}
           <Card className="col-span-2">
             <Stat label="Días Mínimo completos" value={`${summary.minimumDaysComplete}/7`} hint="Movimiento + proteína + check-in" />
           </Card>
@@ -212,6 +231,31 @@ export default function Progress() {
             })}
           </div>
         </Card>
+
+        {/* Caminatas de la semana */}
+        {weekWalks.length > 0 && (
+          <Card>
+            <p className="mb-3 text-sm font-extrabold text-white">Caminatas de la semana</p>
+            <ul className="flex flex-col gap-2">
+              {weekWalks.map(({ date, walk }) => (
+                <li key={walk.id} className="flex items-start gap-2 text-sm">
+                  <span className="w-11 shrink-0 pt-0.5 text-xs font-bold uppercase text-white/40">
+                    {weekdayShort(date)}
+                  </span>
+                  <span className="min-w-0 flex-1 text-white/70">
+                    {walk.minutes} min · {walk.pace}
+                    {walk.avgHr ? ` · ${walk.avgHr} ppm` : ''}
+                    {isHealthWalk(walk) && (
+                      <span className="ml-2 inline-block whitespace-nowrap rounded-full bg-teal/15 px-2 py-0.5 text-[10px] font-bold text-teal">
+                        {HEALTH_SOURCE_LABEL}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
 
         {/* Gráficos históricos */}
         <Card>

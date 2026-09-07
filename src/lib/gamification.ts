@@ -19,6 +19,8 @@ export const XP = {
   checkin: 10,
   /** Día Mínimo 3/3. */
   minimumDay: 25,
+  /** Meta de pasos del día (misión alternativa de Health Connect), una vez al día. */
+  stepsGoal: 15,
   /** Revisión semanal completada. */
   weeklyReview: 50,
   /** El plan sube de nivel tras la revisión. */

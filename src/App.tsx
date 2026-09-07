@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { ToastProvider } from './components/Toast'
 import { TabBar } from './components/TabBar'
 import { useNav } from './lib/nav'
+import { useHealthSync } from './lib/healthConnect'
 import { useReminderSync } from './lib/notifications'
 import type { Screen } from './lib/types'
 import Today from './screens/Today'
@@ -45,6 +46,10 @@ export default function App() {
   // Recordatorios locales: reprograma al arrancar, al cambiar el estado y al
   // volver a primer plano. En la web es un no-op.
   useReminderSync()
+
+  // Health Connect: sincroniza al arrancar y al volver a primer plano (throttle
+  // de 5 min). En la web es un no-op.
+  useHealthSync()
 
   // Si la app se recargó (o se cerró) con una caminata en curso, volvemos a ella
   // para no perder el cronómetro.

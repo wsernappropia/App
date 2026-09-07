@@ -19,10 +19,12 @@ import {
 import { xpLabel } from '../lib/gamification'
 import * as copy from '../lib/copy'
 import { useNav } from '../lib/nav'
+import { healthWalkMinutes, stepsProgress } from '../lib/health'
 import { ZONE_LABEL } from '../lib/nutrition'
 import { ALL_SUPPLEMENTS, supplementList } from '../lib/supplements'
 import { DEFAULT_SETTINGS, useStore } from '../lib/store'
 import {
+  emptyDay,
   levelInfo,
   minimumDay,
   missionDone,
@@ -66,6 +68,9 @@ export default function Today() {
   const message = useMemo(() => todayMessage(data), [data, today])
   const supplements = supplementList(data.settings.enabledSupplements)
   const water = day?.water ?? 0
+  const health = data.settings.health
+  const steps = day?.steps ?? 0
+  const healthMinutes = day ? healthWalkMinutes(day) : 0
 
   const greeting = data.settings.name ? `Hola, ${data.settings.name}` : 'Hoy'
 
@@ -89,6 +94,7 @@ export default function Today() {
           reps={data.plan.reps}
           onStart={startMission}
           onExtraWalk={() => go('walk')}
+          healthMinutes={healthMinutes}
         />
       </div>
 
@@ -193,6 +199,38 @@ export default function Today() {
         </Card>
       )}
 
+      {health.enabled && (
+        <Card className="mt-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-extrabold text-white">Pasos</h2>
+              <p className="mt-1 text-2xl font-extrabold text-white">
+                {steps.toLocaleString('es-ES')}
+                <span className="text-base font-bold text-white/50">
+                  {' '}
+                  / {health.stepsGoal.toLocaleString('es-ES')}
+                </span>
+              </p>
+              <p className="mt-1 text-xs text-white/55">
+                {health.stepsMissionEnabled
+                  ? steps >= health.stepsGoal
+                    ? 'Meta de pasos cumplida · cuenta como movimiento'
+                    : `Te faltan ${(health.stepsGoal - steps).toLocaleString('es-ES')} pasos`
+                  : 'Desde Samsung Health'}
+              </p>
+            </div>
+            <span className="shrink-0 text-white/30">
+              <IconWalk size={22} />
+            </span>
+          </div>
+          <ProgressBar
+            className="mt-3"
+            value={stepsProgress(day ?? emptyDay(today), data.settings)}
+            color={steps >= health.stepsGoal ? 'var(--color-green)' : 'var(--color-teal)'}
+          />
+        </Card>
+      )}
+
       {/* 5. Racha y XP al final */}
       <div className="mt-3 grid grid-cols-2 gap-3">
         <Card>
@@ -270,6 +308,8 @@ interface MissionHeroProps {
   reps: number
   onStart: () => void
   onExtraWalk: () => void
+  /** Minutos del día que llegaron desde Health Connect (0 si no hay). */
+  healthMinutes: number
 }
 
 function MissionHero({
@@ -280,6 +320,7 @@ function MissionHero({
   reps,
   onStart,
   onExtraWalk,
+  healthMinutes,
 }: MissionHeroProps) {
   if (mission === 'rest') {
     return (
@@ -313,6 +354,12 @@ function MissionHero({
           {title} · {detail}
         </h2>
         <p className="mt-1 text-sm text-white/60">{copy.MISSION_DONE}</p>
+        {healthMinutes > 0 && (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-white/70">
+            <IconWalk size={13} />
+            {healthMinutes} min caminados (Samsung Health)
+          </p>
+        )}
         <Button className="mt-4" variant="secondary" size="lg" block onClick={onStart}>
           Añadir más
         </Button>
