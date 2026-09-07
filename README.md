@@ -223,6 +223,21 @@ npm run icons
 npx @capacitor/assets generate --android --iconBackgroundColor '#0f2b46' --splashBackgroundColor '#0b1a2b'
 ```
 
+### El service worker es solo de la web
+
+La PWA usa un **service worker** (Workbox) para funcionar sin conexión desde el navegador. Dentro del APK **no se registra ninguno**, a propósito: el WebView de Capacitor sirve la app desde su servidor local (`https://localhost`) y es ahí donde se inyecta el puente nativo (`window.androidBridge` + `native-bridge.js`). Si un service worker precachea `index.html` y lo sirve él en las siguientes aperturas, el documento puede llegar **sin ese puente**: `Capacitor.isNativePlatform()` pasa a `false`, los plugins desaparecen y Ajustes muestra *Recordatorios* y *Samsung Health / Health Connect* desactivados, como si fuera la web. La propia [documentación de Capacitor](https://capacitorjs.com/docs/android/troubleshooting) avisa de que los service workers impiden esa inyección.
+
+Por eso `src/lib/sw.ts` decide por origen (no solo por `isNativePlatform()`, que es justo lo que falla cuando el HTML viene del caché):
+
+- **Web/PWA** → registra el service worker como siempre.
+- **WebView de Capacitor** (`https://localhost`) → no registra nada, y si encuentra uno de una versión anterior lo **desregistra, borra sus caches y recarga la app una sola vez** (marca en `sessionStorage` para no entrar en bucle). Por eso, al abrir por primera vez un APK nuevo viniendo de la v0.1.4 o anterior, la app puede parpadear/recargarse una vez: es normal y sólo pasa esa vez.
+
+### Reportar un problema: "Diagnóstico"
+
+Al final de **Ajustes** hay una tarjeta plegable **Diagnóstico** con lo que la app ve en ese teléfono: versión, plataforma, `isNativePlatform`, si hay service worker, origen, si cargaron los plugins de notificaciones y Health Connect, permisos concedidos/denegados, última sincronización y el último error de cada área. El botón **"Copiar diagnóstico"** lo copia entero al portapapeles (si el WebView no deja copiar, aparece el texto para seleccionarlo a mano).
+
+Si algo no funciona —un interruptor que no se activa, notificaciones que no llegan, Health Connect que no sincroniza— abre Diagnóstico, cópialo y pégalo en el reporte: ahí sale el motivo real del fallo.
+
 ### ¿Y en iPhone?
 
 Capacitor también soporta iOS, pero generar un `.ipa` instalable exige un Mac con Xcode y una cuenta de desarrollador de Apple (y reinstalar cada 7 días con una cuenta gratuita). Queda fuera de alcance por ahora: en iPhone, la vía práctica sigue siendo **instalar la PWA desde Safari** como se explica más arriba.

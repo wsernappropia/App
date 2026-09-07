@@ -21,6 +21,7 @@ import type {
   Workout,
 } from '@capgo/capacitor-health'
 import { toISODate } from './dates'
+import { clearError, getLastError, recordError } from './diagnostics'
 import { HEALTH_SYNC_DAYS, HEALTH_SYNC_THROTTLE_MS } from './health'
 import type { HealthSnapshot, HealthWalk } from './health'
 import { useStore } from './store'
@@ -63,7 +64,7 @@ async function loadPlugin(): Promise<Plugin | null> {
     pluginPromise = import('@capgo/capacitor-health')
       .then((m) => m.Health)
       .catch((err) => {
-        console.warn('[health] no se pudo cargar el plugin', err)
+        recordError('health', 'import del plugin', err)
         return null
       })
   }
@@ -72,17 +73,51 @@ async function loadPlugin(): Promise<Plugin | null> {
 
 // ------------------------------------------------------ disponibilidad
 
+/** Disponibilidad detallada, con el motivo que dé el plugin. */
+export interface HealthAvailability {
+  pluginLoaded: boolean
+  available: boolean
+  /** Motivo que devuelve el plugin cuando no está disponible. */
+  reason?: string
+  platform?: string
+  /** Mensaje del error capturado, si lo hubo. */
+  error?: string
+}
+
+/** ¿Hay Health Connect en este teléfono? Con motivo, para poder explicarlo. */
+export async function availabilityDetail(): Promise<HealthAvailability> {
+  const health = await loadPlugin()
+  if (!health) {
+    return {
+      pluginLoaded: false,
+      available: false,
+      error: isNativeHealth()
+        ? (getLastError('health')?.message ?? 'el plugin de Health Connect no está disponible')
+        : 'la sincronización sólo existe en la app Android',
+    }
+  }
+  try {
+    const result = (await health.isAvailable()) as {
+      available?: boolean
+      reason?: string
+      platform?: string
+    }
+    if (result.available) clearError('health')
+    return {
+      pluginLoaded: true,
+      available: !!result.available,
+      reason: result.reason,
+      platform: result.platform,
+    }
+  } catch (err) {
+    const entry = recordError('health', 'isAvailable', err)
+    return { pluginLoaded: true, available: false, error: entry.message }
+  }
+}
+
 /** ¿Hay Health Connect en este teléfono? (false siempre en la web) */
 export async function isAvailable(): Promise<boolean> {
-  const health = await loadPlugin()
-  if (!health) return false
-  try {
-    const result = await health.isAvailable()
-    return !!result.available
-  } catch (err) {
-    console.warn('[health] isAvailable falló', err)
-    return false
-  }
+  return (await availabilityDetail()).available
 }
 
 function granted(status: AuthorizationStatus): boolean {
@@ -97,22 +132,74 @@ export async function hasPermissions(): Promise<boolean> {
   try {
     return granted(await health.checkAuthorization({ read: READ_TYPES }))
   } catch (err) {
-    console.warn('[health] checkAuthorization falló', err)
+    recordError('health', 'checkAuthorization', err)
     return false
   }
 }
 
-/** Abre el diálogo de Health Connect. Devuelve false si se deniegan. */
-export async function requestPermissions(): Promise<boolean> {
+/** Resultado detallado de pedir permisos, para poder explicar el fallo. */
+export interface HealthPermissionResult {
+  granted: boolean
+  /** 'granted' | 'denied' | 'no-plugin' | 'error' */
+  reason: 'granted' | 'denied' | 'no-plugin' | 'error'
+  readAuthorized?: string[]
+  readDenied?: string[]
+  error?: string
+}
+
+/** Abre el diálogo de Health Connect. Nunca lanza: devuelve el motivo. */
+export async function requestPermissions(): Promise<HealthPermissionResult> {
   const health = await loadPlugin()
-  if (!health) return false
+  if (!health) {
+    return {
+      granted: false,
+      reason: 'no-plugin',
+      error: isNativeHealth()
+        ? (getLastError('health')?.message ?? 'el plugin de Health Connect no está disponible')
+        : 'la sincronización sólo existe en la app Android',
+    }
+  }
   try {
     const current = await health.checkAuthorization({ read: READ_TYPES })
-    if (granted(current)) return true
-    return granted(await health.requestAuthorization({ read: READ_TYPES }))
+    if (granted(current)) {
+      clearError('health')
+      return {
+        granted: true,
+        reason: 'granted',
+        readAuthorized: current.readAuthorized ?? [],
+        readDenied: current.readDenied ?? [],
+      }
+    }
+    const asked = await health.requestAuthorization({ read: READ_TYPES })
+    const ok = granted(asked)
+    if (ok) clearError('health')
+    return {
+      granted: ok,
+      reason: ok ? 'granted' : 'denied',
+      readAuthorized: asked.readAuthorized ?? [],
+      readDenied: asked.readDenied ?? [],
+    }
   } catch (err) {
-    console.warn('[health] requestAuthorization falló', err)
-    return false
+    const entry = recordError('health', 'requestAuthorization', err)
+    return { granted: false, reason: 'error', error: entry.message }
+  }
+}
+
+/** Permisos vigentes (sin abrir diálogo), para el panel de Diagnóstico. */
+export async function authorizationDetail(): Promise<HealthPermissionResult> {
+  const health = await loadPlugin()
+  if (!health) return { granted: false, reason: 'no-plugin' }
+  try {
+    const current = await health.checkAuthorization({ read: READ_TYPES })
+    return {
+      granted: granted(current),
+      reason: granted(current) ? 'granted' : 'denied',
+      readAuthorized: current.readAuthorized ?? [],
+      readDenied: current.readDenied ?? [],
+    }
+  } catch (err) {
+    const entry = recordError('health', 'checkAuthorization', err)
+    return { granted: false, reason: 'error', error: entry.message }
   }
 }
 
@@ -123,7 +210,7 @@ export async function openHealthSettings(): Promise<void> {
   try {
     await health.openHealthConnectSettings()
   } catch (err) {
-    console.warn('[health] no se pudieron abrir los ajustes', err)
+    recordError('health', 'openHealthConnectSettings', err)
   }
 }
 
@@ -217,7 +304,7 @@ export async function readSnapshot(
       bucketOf(byDay, toISODate(at)).steps = value
     }
   } catch (err) {
-    console.warn('[health] no se pudieron leer los pasos', err)
+    recordError('health', 'lectura de pasos', err)
   }
 
   // Pulso de la ventana, para estimar el pulso medio de cada caminata.
@@ -235,7 +322,7 @@ export async function readSnapshot(
       .filter((s) => Number.isFinite(s.at) && s.value > 0)
   } catch (err) {
     // Sin permiso de pulso simplemente no hay `avgHr`.
-    console.warn('[health] sin pulso', err)
+    recordError('health', 'lectura de pulso', err)
   }
 
   // Caminatas y senderismo.
@@ -253,7 +340,7 @@ export async function readSnapshot(
       bucketOf(byDay, toISODate(new Date(walk.startedAt))).walks.push(walk)
     }
   } catch (err) {
-    console.warn('[health] no se pudieron leer las caminatas', err)
+    recordError('health', 'lectura de caminatas', err)
   }
 
   // Peso: la medición más reciente de la ventana, en el día en que se tomó.
@@ -273,7 +360,7 @@ export async function readSnapshot(
       }
     }
   } catch (err) {
-    console.warn('[health] no se pudo leer el peso', err)
+    recordError('health', 'lectura de peso', err)
   }
 
   const out: Record<ISODate, HealthSnapshot> = {}
@@ -288,7 +375,7 @@ let syncing = false
 /**
  * Sincroniza si procede: ajuste activo, plataforma nativa y permisos vigentes.
  * `force` salta el throttle de 5 min (botón "Sincronizar ahora").
- * Nunca lanza: cualquier error se traga con un `console.warn`.
+ * Nunca lanza: cualquier error queda en `diagnostics` (panel de Ajustes).
  */
 export async function syncHealth(force = false, now: Date = new Date()): Promise<boolean> {
   if (!isNativeHealth()) return false
@@ -315,7 +402,7 @@ export async function syncHealth(force = false, now: Date = new Date()): Promise
     })
     return true
   } catch (err) {
-    console.warn('[health] la sincronización falló', err)
+    recordError('health', 'sincronización', err)
     return false
   } finally {
     syncing = false
@@ -361,7 +448,7 @@ export function useHealthSync(): void {
         if (disposed) void handle.remove()
         else handles.push(handle)
       } catch (err) {
-        console.warn('[health] sin appStateChange', err)
+        recordError('health', 'appStateChange', err)
       }
     })()
 

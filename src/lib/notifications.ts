@@ -9,6 +9,7 @@ import { Capacitor } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
 import type { ActionPerformed, LocalNotificationSchema } from '@capacitor/local-notifications'
 import { useNav } from './nav'
+import { clearError, getLastError, recordError } from './diagnostics'
 import { useStore } from './store'
 import {
   REMINDER_SCREEN,
@@ -46,7 +47,7 @@ async function loadPlugin(): Promise<Plugin | null> {
     pluginPromise = import('@capacitor/local-notifications')
       .then((m) => m.LocalNotifications)
       .catch((err) => {
-        console.error('[reminders] no se pudo cargar el plugin', err)
+        recordError('notifications', 'import del plugin', err)
         return null
       })
   }
@@ -69,7 +70,7 @@ async function ensureChannel(ln: Plugin): Promise<void> {
         vibration: true,
       })
       .catch((err) => {
-        console.error('[reminders] no se pudo crear el canal', err)
+        recordError('notifications', 'createChannel', err)
       })
   }
   return channelReady
@@ -84,26 +85,75 @@ export async function hasPermission(): Promise<boolean> {
   try {
     const status = await ln.checkPermissions()
     return status.display === 'granted'
-  } catch {
+  } catch (err) {
+    recordError('notifications', 'checkPermissions', err)
     return false
   }
 }
 
+/** Resultado detallado de pedir el permiso, para poder explicar el fallo. */
+export interface PermissionResult {
+  granted: boolean
+  /** 'granted' | 'denied' | 'no-plugin' | 'error' */
+  reason: 'granted' | 'denied' | 'no-plugin' | 'error'
+  /** Estado devuelto por el plugin ('granted', 'denied', 'prompt'…). */
+  display?: string
+  /** Mensaje del error capturado, si lo hubo. */
+  error?: string
+}
+
 /**
  * Pide el permiso de notificaciones (Android 13+ muestra el diálogo del sistema).
- * Devuelve false en la web y si la persona lo deniega.
+ * Nunca lanza: devuelve el motivo para que Ajustes pueda mostrarlo.
  */
-export async function requestPermission(): Promise<boolean> {
+export async function requestPermission(): Promise<PermissionResult> {
   const ln = await loadPlugin()
-  if (!ln) return false
+  if (!ln) {
+    const err = getLastError('notifications')
+    return {
+      granted: false,
+      reason: 'no-plugin',
+      error: isNative()
+        ? (err?.message ?? 'el plugin de notificaciones no está disponible')
+        : 'los recordatorios sólo existen en la app Android',
+    }
+  }
   try {
     const current = await ln.checkPermissions()
-    if (current.display === 'granted') return true
+    if (current.display === 'granted') {
+      clearError('notifications')
+      return { granted: true, reason: 'granted', display: current.display }
+    }
     const asked = await ln.requestPermissions()
-    return asked.display === 'granted'
+    const granted = asked.display === 'granted'
+    if (granted) clearError('notifications')
+    return {
+      granted,
+      reason: granted ? 'granted' : 'denied',
+      display: asked.display,
+    }
   } catch (err) {
-    console.error('[reminders] fallo al pedir permiso', err)
-    return false
+    const entry = recordError('notifications', 'requestPermissions', err)
+    return { granted: false, reason: 'error', error: entry.message }
+  }
+}
+
+/** Estado que pinta el panel de Diagnóstico de Ajustes. */
+export interface NotificationsDiagnostics {
+  pluginLoaded: boolean
+  /** 'granted' | 'denied' | 'prompt' | 'sin plugin' | 'error: …' */
+  permission: string
+}
+
+export async function notificationsDiagnostics(): Promise<NotificationsDiagnostics> {
+  const ln = await loadPlugin()
+  if (!ln) return { pluginLoaded: false, permission: 'sin plugin' }
+  try {
+    const status = await ln.checkPermissions()
+    return { pluginLoaded: true, permission: status.display }
+  } catch (err) {
+    const entry = recordError('notifications', 'checkPermissions', err)
+    return { pluginLoaded: true, permission: `error: ${entry.message}` }
   }
 }
 
@@ -167,7 +217,7 @@ export async function syncReminders(
     })
     return planned.length
   } catch (err) {
-    console.error('[reminders] no se pudieron programar', err)
+    recordError('notifications', 'schedule', err)
     return 0
   }
 }
@@ -179,7 +229,7 @@ export async function cancelAllReminders(): Promise<void> {
   try {
     await cancelPlanned(ln)
   } catch (err) {
-    console.error('[reminders] no se pudieron cancelar', err)
+    recordError('notifications', 'cancel', err)
   }
 }
 
@@ -209,7 +259,7 @@ export async function sendTestNotification(): Promise<boolean> {
     })
     return true
   } catch (err) {
-    console.error('[reminders] fallo en la notificación de prueba', err)
+    recordError('notifications', 'notificación de prueba', err)
     return false
   }
 }
@@ -275,7 +325,7 @@ export function useReminderSync(): void {
           }),
         )
       } catch (err) {
-        console.error('[reminders] sin appStateChange', err)
+        recordError('notifications', 'appStateChange', err)
       }
       const ln = await loadPlugin()
       if (!ln) return
@@ -286,7 +336,7 @@ export function useReminderSync(): void {
           }),
         )
       } catch (err) {
-        console.error('[reminders] sin listener de toque', err)
+        recordError('notifications', 'listener de toque', err)
       }
     })()
 

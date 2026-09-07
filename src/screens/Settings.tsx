@@ -5,6 +5,7 @@ import { Button } from '../components/Button'
 import { Stepper } from '../components/Stepper'
 import { Sheet } from '../components/Sheet'
 import { Toggle } from '../components/Toggle'
+import { DiagnosticsCard } from '../components/DiagnosticsCard'
 import { useToast } from '../components/Toast'
 import { IconBell, IconCheck, IconPill, IconWalk } from '../components/icons'
 import { useStore } from '../lib/store'
@@ -27,14 +28,13 @@ import {
   formatSyncAge,
 } from '../lib/health'
 import {
-  isAvailable as isHealthAvailable,
+  availabilityDetail as healthAvailability,
   isNativeHealth,
   requestPermissions as requestHealthPermissions,
   syncHealth,
 } from '../lib/healthConnect'
+import { errorMessage } from '../lib/diagnostics'
 import type { ReminderConfig, ReminderId, SupplementId } from '../lib/types'
-
-declare const __APP_VERSION__: string | undefined
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] // lunes..domingo
 
@@ -80,14 +80,24 @@ export default function Settings() {
       void cancelAllReminders()
       return
     }
-    const granted = await requestPermission()
-    if (!granted) {
-      // El interruptor se queda apagado: sin permiso no hay nada que programar.
+    try {
+      const result = await requestPermission()
+      if (!result.granted) {
+        // El interruptor se queda apagado: sin permiso no hay nada que programar.
+        setPermissionDenied(true)
+        show(
+          result.reason === 'denied'
+            ? 'Android denegó el permiso de notificaciones'
+            : `No se pudo activar: ${result.error ?? result.reason}`,
+        )
+        return
+      }
+      setPermissionDenied(false)
+      state.updateSettings({ reminders: { ...reminders, enabled: true } })
+    } catch (err) {
       setPermissionDenied(true)
-      return
+      show(`No se pudo activar: ${errorMessage(err)}`)
     }
-    setPermissionDenied(false)
-    state.updateSettings({ reminders: { ...reminders, enabled: true } })
   }
 
   function patchHealth(patch: Partial<typeof health>) {
@@ -102,13 +112,26 @@ export default function Settings() {
     }
     setHealthBusy(true)
     try {
-      if (!(await isHealthAvailable())) {
-        setHealthError('Health Connect no está disponible en este teléfono.')
+      const availability = await healthAvailability()
+      if (!availability.available) {
+        const detail = availability.reason ?? availability.error
+        setHealthError(
+          `Health Connect no está disponible en este teléfono.${detail ? ` (${detail})` : ''}`,
+        )
+        show(detail ? `Health Connect no disponible: ${detail}` : 'Health Connect no disponible')
         return
       }
-      if (!(await requestHealthPermissions())) {
+      const permissions = await requestHealthPermissions()
+      if (!permissions.granted) {
         setHealthError(
-          'No diste permiso a Momentum para leer tus datos. Puedes concederlo en Ajustes de Android → Salud y bienestar → Health Connect.',
+          permissions.reason === 'error'
+            ? `Health Connect falló al pedir permisos: ${permissions.error ?? 'error desconocido'}`
+            : 'No diste permiso a Momentum para leer tus datos. Puedes concederlo en Ajustes de Android → Salud y bienestar → Health Connect.',
+        )
+        show(
+          permissions.reason === 'error'
+            ? `No se pudo activar: ${permissions.error ?? 'error desconocido'}`
+            : 'Health Connect no concedió los permisos',
         )
         return
       }
@@ -116,6 +139,10 @@ export default function Settings() {
       patchHealth({ enabled: true })
       // Primera sincronización inmediata, sin esperar al throttle.
       void syncHealth(true)
+    } catch (err) {
+      const message = errorMessage(err)
+      setHealthError(`No se pudo activar la sincronización: ${message}`)
+      show(`No se pudo activar: ${message}`)
     } finally {
       setHealthBusy(false)
     }
@@ -572,6 +599,8 @@ export default function Settings() {
             </Button>
           </div>
         </Card>
+
+        <DiagnosticsCard onToast={show} />
 
         <footer className="flex flex-col items-center gap-1 pb-4 pt-2 text-center">
           <span className="text-xs font-bold text-white/40">{version}</span>

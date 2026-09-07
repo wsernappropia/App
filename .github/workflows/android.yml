@@ -18,6 +18,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A nivel de job (no del paso de gradle) a propósito: la versión la leen
+    # tanto `npm run build:android` (vite la inyecta en __APP_VERSION__, que es
+    # lo que muestran el pie de Ajustes y el panel de Diagnóstico) como gradle
+    # (versionName/versionCode del APK).
     env:
       VERSION_CODE: ${{ github.run_number }}
       VERSION_NAME: 0.1.${{ github.run_number }}
