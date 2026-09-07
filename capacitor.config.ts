@@ -22,6 +22,12 @@ const config: CapacitorConfig = {
       splashFullScreen: false,
       splashImmersive: false,
     },
+    LocalNotifications: {
+      // Icono monocromo de la barra de estado (res/drawable/ic_stat_momentum.xml)
+      // y color de acento. Cada notificación lo repite por si acaso.
+      smallIcon: 'ic_stat_momentum',
+      iconColor: '#14b8a6',
+    },
     StatusBar: {
       // Navy del header: la barra de estado se funde con él, sin taparlo.
       backgroundColor: '#0f2b46',

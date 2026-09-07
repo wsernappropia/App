@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { STORAGE_KEY, STORE_VERSION, createStore, normalizeData } from './store'
+import { DEFAULT_REMINDERS } from './reminders'
 import { makeTestStore } from './testing'
 import { XP } from './gamification'
 import { proteinTotal, streak } from './selectors'
@@ -271,6 +272,22 @@ describe('export / import / reset', () => {
     const data = normalizeData({ settings: {}, plan: {}, days: { x: {} }, reviews: [], game: {} })
     expect(data.settings.proteinGoal).toBe(110)
     expect(data.days.x.walks).toEqual([])
+  })
+
+  it('normalizeData rellena los recordatorios en estados antiguos', () => {
+    const data = normalizeData({ settings: {}, plan: {}, days: {}, reviews: [], game: {} })
+    expect(data.settings.reminders).toEqual(DEFAULT_REMINDERS)
+    // Y completa lo que falte dentro sin perder lo guardado.
+    const partial = normalizeData({
+      settings: { reminders: { enabled: true, mission: { time: '07:30' } } },
+      plan: {},
+      days: {},
+      reviews: [],
+      game: {},
+    })
+    expect(partial.settings.reminders.enabled).toBe(true)
+    expect(partial.settings.reminders.mission).toEqual({ on: true, time: '07:30' })
+    expect(partial.settings.reminders.checkin).toEqual(DEFAULT_REMINDERS.checkin)
   })
 })
 

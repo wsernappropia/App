@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -32,4 +33,18 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Recordatorios locales (@capacitor/local-notifications).
+      POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED y WAKE_LOCK los aporta el propio
+      plugin al fusionar su manifiesto: aquí no hay que declararlos.
+
+      SCHEDULE_EXACT_ALARM sí lo declara el plugin, y lo QUITAMOS a propósito:
+      con targetSdk 36 Android no lo concede solo (haría falta mandar a la persona
+      a la pantalla "Alarmas y recordatorios" del sistema), y para avisos de
+      hábitos no hace falta precisión al segundo. Programamos alarmas inexactas
+      (isExactNotification: false + allowWhileIdle), así que el aviso puede llegar
+      con unos minutos de desfase pero sin pedir ningún permiso especial.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
 </manifest>

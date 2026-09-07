@@ -72,6 +72,26 @@ export interface DayLog {
   awards?: Partial<Record<XpAwardKey, boolean>>
 }
 
+/** Recordatorios locales (sólo app Android). */
+export type ReminderId = 'mission' | 'protein' | 'checkin' | 'review'
+
+/** Hora local en formato 'HH:MM' (24 h). */
+export type ReminderTime = string
+
+export interface ReminderConfig {
+  on: boolean
+  time: ReminderTime
+}
+
+export interface ReminderSettings {
+  enabled: boolean
+  mission: ReminderConfig
+  protein: ReminderConfig
+  checkin: ReminderConfig
+  /** Sólo se dispara los domingos. */
+  review: ReminderConfig
+}
+
 export interface Settings {
   name: string
   proteinGoal: number // default 110
@@ -82,6 +102,8 @@ export interface Settings {
   waterEnabled: boolean
   waterGoal: number
   onboarded: boolean
+  /** Añadido: recordatorios locales. Los estados antiguos se rellenan con el default. */
+  reminders: ReminderSettings
 }
 
 export interface WeeklyPlan {

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { ToastProvider } from './components/Toast'
 import { TabBar } from './components/TabBar'
 import { useNav } from './lib/nav'
+import { useReminderSync } from './lib/notifications'
 import type { Screen } from './lib/types'
 import Today from './screens/Today'
 import Walk, { hasActiveWalk } from './screens/Walk'
@@ -40,6 +41,10 @@ export default function App() {
   const screen = useNav((s) => s.screen)
   const go = useNav((s) => s.go)
   const isChild = CHILD_SCREENS.includes(screen)
+
+  // Recordatorios locales: reprograma al arrancar, al cambiar el estado y al
+  // volver a primer plano. En la web es un no-op.
+  useReminderSync()
 
   // Si la app se recargó (o se cerró) con una caminata en curso, volvemos a ella
   // para no perder el cronómetro.

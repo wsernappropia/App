@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Icono monocromo de la barra de estado para los recordatorios.
+  Es el rayo de public/icon.svg (mismo path, mismo viewport 512) escalado x2
+  sobre el centro para que llene el lienzo de 24dp. Android tiñe de blanco la
+  silueta, así que sólo importa el alfa.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="258"
+        android:pivotY="258"
+        android:scaleX="2"
+        android:scaleY="2">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M292,150 L214,274 h56 L216,366 L302,234 h-56 Z" />
+    </group>
+</vector>

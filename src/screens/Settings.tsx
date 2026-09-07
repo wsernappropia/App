@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Screen } from '../components/Screen'
 import { Card } from '../components/Card'
 import { Button } from '../components/Button'
@@ -6,12 +6,20 @@ import { Stepper } from '../components/Stepper'
 import { Sheet } from '../components/Sheet'
 import { Toggle } from '../components/Toggle'
 import { useToast } from '../components/Toast'
-import { IconCheck, IconPill } from '../components/icons'
+import { IconBell, IconCheck, IconPill } from '../components/icons'
 import { useStore } from '../lib/store'
 import { useNav } from '../lib/nav'
 import { ALL_SUPPLEMENTS } from '../lib/supplements'
 import { DAY_SHORT } from '../lib/dates'
-import type { SupplementId } from '../lib/types'
+import { REMINDER_HINT, REMINDER_LABEL, REMINDER_ORDER, isReminderTime } from '../lib/reminders'
+import {
+  cancelAllReminders,
+  hasPermission,
+  isNative,
+  requestPermission,
+  sendTestNotification,
+} from '../lib/notifications'
+import type { ReminderConfig, ReminderId, SupplementId } from '../lib/types'
 
 declare const __APP_VERSION__: string | undefined
 
@@ -24,10 +32,51 @@ export default function Settings() {
   const go = useNav((s) => s.go)
 
   const [resetOpen, setResetOpen] = useState(false)
+  const [permissionDenied, setPermissionDenied] = useState(false)
+  const native = isNative()
+  const reminders = settings.reminders
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [exportText, setExportText] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Si el permiso se revocó desde los ajustes de Android, lo reflejamos aquí.
+  useEffect(() => {
+    if (!native || !reminders.enabled) return
+    let alive = true
+    void hasPermission().then((ok) => {
+      if (alive) setPermissionDenied(!ok)
+    })
+    return () => {
+      alive = false
+    }
+  }, [native, reminders.enabled])
+
+  function patchReminder(id: ReminderId, patch: Partial<ReminderConfig>) {
+    state.updateSettings({ reminders: { ...reminders, [id]: { ...reminders[id], ...patch } } })
+  }
+
+  async function toggleReminders(next: boolean) {
+    if (!next) {
+      state.updateSettings({ reminders: { ...reminders, enabled: false } })
+      setPermissionDenied(false)
+      void cancelAllReminders()
+      return
+    }
+    const granted = await requestPermission()
+    if (!granted) {
+      // El interruptor se queda apagado: sin permiso no hay nada que programar.
+      setPermissionDenied(true)
+      return
+    }
+    setPermissionDenied(false)
+    state.updateSettings({ reminders: { ...reminders, enabled: true } })
+  }
+
+  async function handleTestNotification() {
+    const ok = await sendTestNotification()
+    show(ok ? 'Te llegará en 5 segundos' : 'No se pudo programar')
+  }
 
   function toggleSupplementEnabled(id: SupplementId) {
     const enabled = settings.enabledSupplements.includes(id)
@@ -247,6 +296,99 @@ export default function Settings() {
                 step={1}
                 onChange={(v) => state.updateSettings({ waterGoal: v })}
               />
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <div className="mb-3 flex items-center gap-2">
+            <IconBell size={18} className="text-white/60" />
+            <p className="text-sm font-extrabold text-white">Recordatorios</p>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-white">Avisarme durante el día</p>
+              <p className="text-xs text-white/45">
+                {native
+                  ? 'Notificaciones en el móvil para completar tu Día Mínimo'
+                  : 'Los recordatorios funcionan en la app Android'}
+              </p>
+            </div>
+            <Toggle
+              checked={reminders.enabled}
+              disabled={!native}
+              onChange={(v) => void toggleReminders(v)}
+              label="Activar recordatorios"
+            />
+          </div>
+
+          {!native && (
+            <p className="mt-3 rounded-xl bg-white/5 p-3 text-xs leading-relaxed text-white/50">
+              Esta es la versión web. Instala el APK de Momentum en Android para recibir
+              recordatorios: aquí los controles están desactivados.
+            </p>
+          )}
+
+          {native && permissionDenied && (
+            <p className="mt-3 rounded-xl bg-red/15 p-3 text-xs leading-relaxed text-red">
+              Android no ha dado permiso para notificaciones. Actívalo en{' '}
+              <span className="font-bold">Ajustes → Aplicaciones → Momentum → Notificaciones</span> y
+              vuelve a encender este interruptor.
+            </p>
+          )}
+
+          <div className="mt-4 flex flex-col gap-4 border-t border-white/5 pt-4">
+            {REMINDER_ORDER.map((id) => {
+              const config = reminders[id]
+              const disabled = !native || !reminders.enabled
+              return (
+                <div key={id} className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p
+                      className={`text-sm font-bold ${disabled ? 'text-white/35' : 'text-white'}`}
+                    >
+                      {REMINDER_LABEL[id]}
+                    </p>
+                    <Toggle
+                      checked={config.on}
+                      disabled={disabled}
+                      onChange={(v) => patchReminder(id, { on: v })}
+                      label={`Activar ${REMINDER_LABEL[id]}`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 flex-1 text-xs leading-snug text-white/40">
+                      {REMINDER_HINT[id]}
+                    </p>
+                    <input
+                      type="time"
+                      lang="es-ES"
+                      value={config.time}
+                      disabled={disabled || !config.on}
+                      aria-label={`Hora de ${REMINDER_LABEL[id]}`}
+                      onChange={(e) => {
+                        if (isReminderTime(e.target.value)) {
+                          patchReminder(id, { time: e.target.value })
+                        }
+                      }}
+                      className="h-11 min-w-[112px] shrink-0 rounded-xl bg-navy-light px-3 text-center text-base font-bold text-white outline-none [color-scheme:dark] focus:ring-2 focus:ring-teal disabled:opacity-40"
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {native && (
+            <div className="mt-4 border-t border-white/5 pt-4">
+              <Button variant="secondary" block onClick={() => void handleTestNotification()}>
+                Probar notificación
+              </Button>
+              <p className="mt-2 text-xs text-white/40">
+                Llega en 5 segundos. Android puede retrasar los avisos unos minutos para ahorrar
+                batería.
+              </p>
             </div>
           )}
         </Card>

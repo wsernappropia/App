@@ -7,6 +7,7 @@ import type { StateStorage } from 'zustand/middleware'
 import { addDays, listDays, parseISODate, todayKey, weekStart } from './dates'
 import { XP, walkXp } from './gamification'
 import { newId } from './ids'
+import { DEFAULT_REMINDERS, normalizeReminders } from './reminders'
 import { applyDecision, basePlan, decide } from './progression'
 import {
   getDay,
@@ -49,13 +50,19 @@ export const DEFAULT_SETTINGS: Settings = {
   waterEnabled: false,
   waterGoal: 8,
   onboarded: false,
+  reminders: DEFAULT_REMINDERS,
 }
 
 export const DEFAULT_GAME: GameState = { xp: 0, shields: 0, badges: [] }
 
 export function initialData(now: Date = new Date()): MomentumData {
   return {
-    settings: { ...DEFAULT_SETTINGS, enabledSupplements: [...DEFAULT_SETTINGS.enabledSupplements] },
+    settings: {
+      ...DEFAULT_SETTINGS,
+      enabledSupplements: [...DEFAULT_SETTINGS.enabledSupplements],
+      strengthDays: [...DEFAULT_SETTINGS.strengthDays],
+      reminders: normalizeReminders(DEFAULT_SETTINGS.reminders),
+    },
     plan: basePlan(todayKey(now)),
     days: {},
     reviews: [],
@@ -272,6 +279,9 @@ export function normalizeData(raw: unknown, now: Date = new Date()): MomentumDat
   settings.strengthDays = Array.isArray(settings.strengthDays)
     ? settings.strengthDays.filter((n) => typeof n === 'number')
     : [...base.settings.strengthDays]
+  // Los estados persistidos antes de los recordatorios no traen este campo:
+  // se rellena con el default (y se completa lo que falte dentro).
+  settings.reminders = normalizeReminders(settings.reminders)
   const plan: WeeklyPlan = { ...base.plan, ...(raw.plan as Partial<WeeklyPlan>) }
   const days: Record<ISODate, DayLog> = {}
   for (const [key, value] of Object.entries(raw.days as Record<string, unknown>)) {

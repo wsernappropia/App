@@ -167,3 +167,12 @@ export function IconWater({ size, ...props }: IconProps) {
     </svg>
   )
 }
+
+export function IconBell({ size, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <path d="M18 8a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6" />
+      <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+    </svg>
+  )
+}

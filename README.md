@@ -12,6 +12,7 @@ La filosofía es simple: **"5 minutos mantienen el ritmo"** — no hace falta un
 - **Nutrición**: seguimiento de hábitos nutricionales del día.
 - **Suplementos**: checklist diario de suplementos.
 - **Progreso**: gráficas y estadísticas de evolución (XP, adherencia, tendencias).
+- **Recordatorios** (sólo app Android): avisos locales durante el día para no olvidar la misión, la proteína, el check-in y la revisión semanal. Ver [Recordatorios](#recordatorios).
 - **Revisión semanal**: al cierre de cada semana, la app aplica la **regla 7.1** para decidir cómo ajustar el plan de la próxima semana según adherencia, RPE y dolor:
 
   | Adherencia | RPE / dolor | Decisión |
@@ -28,6 +29,27 @@ La filosofía es simple: **"5 minutos mantienen el ritmo"** — no hace falta un
 - **Niveles**: el XP acumulado determina el nivel del plan y su nombre.
 - **Racha con escudos**: mantener la actividad día a día construye una racha. Cada 7 días de racha se gana un escudo (máximo 2 acumulados) que protege la racha si se falla un día.
 - **Insignias**: logros desbloqueables por hitos (por ejemplo, mantener una racha de 7 días).
+
+## Recordatorios
+
+La app Android puede avisarte a lo largo del día para que completes tus metas. Son **notificaciones locales**: se programan en el propio móvil, sin servidor y sin conexión.
+
+Hay cuatro recordatorios, cada uno con su hora:
+
+| Recordatorio | Hora por defecto | Cuándo |
+|---|---|---|
+| Misión del día | 08:00 | Todos los días (en el día de descanso, se convierte en "caminata opcional") |
+| Proteína | 14:00 | Todos los días |
+| Check-in | 21:00 | Todos los días |
+| Revisión semanal | 18:00 | Sólo los domingos |
+
+**Cómo activarlos:** *Ajustes → Recordatorios → "Avisarme durante el día"*. Al encenderlo, Android pide el permiso de notificaciones (Android 13+). Si lo deniegas, el interruptor se queda apagado y la app te explica cómo concederlo después: *Ajustes de Android → Aplicaciones → Momentum → Notificaciones*. Desde ahí puedes encender o apagar cada recordatorio por separado y cambiar su hora. El botón **"Probar notificación"** lanza una de ejemplo a los 5 segundos.
+
+**Son inteligentes, no repetitivos.** Se reprograman solos (los próximos 7 días) cada vez que cambias algo, y omiten lo que ya no hace falta: si hoy ya hiciste la misión, no te avisa de la misión; si ya llegaste al mínimo de proteína, no te avisa de proteína; si ya hiciste el check-in, tampoco. El aviso de la misión usa el plan real de ese día (caminar N minutos, o N rondas de fuerza).
+
+**Pueden llegar con unos minutos de desfase.** Momentum usa alarmas *inexactas* a propósito: las exactas exigen un permiso especial en Android 12+ que obligaría a mandarte a una pantalla de ajustes del sistema, y para un recordatorio de hábitos no compensa. A cambio, Android agrupa los avisos para ahorrar batería, así que uno de las 08:00 puede sonar a las 08:05. El ahorro de batería agresivo del fabricante (Xiaomi, Huawei, Samsung…) puede retrasarlos más: si te pasa, quita a Momentum de la optimización de batería.
+
+**Sólo existen en la app Android.** En la web (PWA o navegador) la sección aparece con los controles desactivados y una nota: no hay recordatorios ahí.
 
 ## Stack técnico
 
