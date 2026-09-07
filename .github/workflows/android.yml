@@ -74,6 +74,16 @@ jobs:
           path: android/app/build/outputs/apk/release/momentum-*.apk
           if-no-files-found: error
 
+      # softprops/action-gh-release no borra assets antiguos: sin este paso la
+      # Release `android-latest` va acumulando momentum-0.1.1.apk, 0.1.2.apk, etc.
+      # Borramos todos los assets existentes (si la release ya existe) para que
+      # quede solo el APK de esta build.
+      - name: Borrar assets antiguos de la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-latest --json assets -q '.assets[].name' | xargs -r -I{} gh release delete-asset android-latest {} -y || true
+
       # Release fija `android-latest`: siempre el mismo enlace para descargar
       # la última build desde el móvil.
       - name: Publicar la Release
