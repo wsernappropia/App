@@ -38,7 +38,7 @@ export function Stepper({
         >
           <IconMinus size={18} />
         </button>
-        <span className="min-w-[3.5ch] text-center text-lg font-extrabold text-white">
+        <span className="min-w-[4.5rem] text-center text-lg font-extrabold tabular-nums text-white">
           {value}
           {suffix}
         </span>

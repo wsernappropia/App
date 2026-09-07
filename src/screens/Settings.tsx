@@ -4,6 +4,7 @@ import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Stepper } from '../components/Stepper'
 import { Sheet } from '../components/Sheet'
+import { Toggle } from '../components/Toggle'
 import { useToast } from '../components/Toast'
 import { IconCheck, IconPill } from '../components/icons'
 import { useStore } from '../lib/store'
@@ -15,33 +16,6 @@ import type { SupplementId } from '../lib/types'
 declare const __APP_VERSION__: string | undefined
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] // lunes..domingo
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${checked ? 'bg-teal' : 'bg-white/15'}`}
-    >
-      <span
-        className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-          checked ? 'translate-x-7' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  )
-}
 
 export default function Settings() {
   const state = useStore()
